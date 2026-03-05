@@ -631,69 +631,110 @@ func handleArtifacts(engine *workflow.Engine, session *Session, wsManager *works
 func handleShow(engine *workflow.Engine, session *Session, parts []string) {
 	if len(parts) < 2 {
 		fmt.Println("用法: show <产出物名称>")
-		fmt.Println("例如: show prd")
+		fmt.Println("例如:")
+		fmt.Println("  show prd          # 查看需求文档")
+		fmt.Println("  show design       # 查看设计文档")
+		fmt.Println("  show code         # 查看代码（开发阶段）")
+		fmt.Println("  show main.go      # 查看特定代码文件")
 		return
 	}
 
 	project := session.GetProject()
 	if project == nil {
-		fmt.Println("❌ 未选择项目")
+		fmt.Println("❌ 未选择项目，先用 'project <ID>' 进入")
 		return
 	}
 
 	name := parts[1]
 
-	// 先尝试从工作空间读取
-	if gWsManager != nil && project.WorkspaceDir != "" {
-		// 尝试在各个阶段目录中查找
-		for stageNum := 1; stageNum <= 6; stageNum++ {
-			content, err := gWsManager.ReadFile(project.Name, project.ID, stageNum, name)
-			if err == nil {
-				fmt.Printf("\n📄 %s (from %s)\n", name, getStageDirName(stageNum))
-				fmt.Println(strings.Repeat("═", 60))
-				fmt.Println(string(content))
-				fmt.Println(strings.Repeat("═", 60))
-				fmt.Println()
-				return
-			}
-		}
-		// 尝试读取带 .json 后缀的
-		for stageNum := 1; stageNum <= 6; stageNum++ {
-			content, err := gWsManager.ReadFile(project.Name, project.ID, stageNum, name+".json")
-			if err == nil {
-				fmt.Printf("\n📄 %s (from %s)\n", name, getStageDirName(stageNum))
-				fmt.Println(strings.Repeat("═", 60))
-				fmt.Println(string(content))
-				fmt.Println(strings.Repeat("═", 60))
-				fmt.Println()
-				return
-			}
-		}
+	// 映射常用名称到阶段
+	stageMap := map[string]int{
+		"prd":        1,
+		"requirement": 1,
+		"design":     2,
+		"review":     3,
+		"code":       4,
+		"develop":    4,
+		"test":       5,
+		"deploy":     6,
 	}
 
-	// 回退到内存中的产物
-	content, ok := project.Artifacts[name]
-	if !ok {
-		fmt.Printf("❌ 产出物 '%s' 不存在\n", name)
-		fmt.Println("可用产出物:")
-		for key := range project.Artifacts {
-			fmt.Printf("   - %s\n", key)
+	// 如果名称是阶段名，显示该阶段的主文档
+	if stageNum, ok := stageMap[name]; ok {
+		if content, err := gWsManager.ReadDocument(project.Name, project.ID, stageNum); err == nil && content != "" {
+			names := workspace.StageArtifacts[stageNum]
+			fmt.Printf("\n📄 %s (%s)\n", names.Document, workspace.StageDirName(stageNum))
+			fmt.Println(strings.Repeat("═", 60))
+			fmt.Println(content)
+			fmt.Println(strings.Repeat("═", 60))
+			fmt.Println()
+			return
+		}
+		// 如果没有文档，显示代码文件列表
+		files, _ := gWsManager.ListStageFiles(project.Name, project.ID, stageNum)
+		if len(files) > 0 {
+			fmt.Printf("\n📁 %s/ 下的文件:\n", workspace.StageDirName(stageNum))
+			for _, f := range files {
+				fmt.Printf("   📄 %s\n", f)
+			}
+			fmt.Println("\n用 'show <文件名>' 查看具体内容")
+		} else {
+			fmt.Printf("📭 %s 暂无产出物\n", workspace.StageDirName(stageNum))
 		}
 		return
 	}
 
-	fmt.Printf("\n📄 %s\n", name)
-	fmt.Println(strings.Repeat("═", 60))
+	// 尝试作为文件名在各阶段查找
+	if gWsManager != nil {
+		for stageNum := 1; stageNum <= 6; stageNum++ {
+			// 尝试作为主文档读取
+			names := workspace.StageArtifacts[stageNum]
+			if names.Document == name {
+				if content, err := gWsManager.ReadDocument(project.Name, project.ID, stageNum); err == nil && content != "" {
+					fmt.Printf("\n📄 %s (%s)\n", name, workspace.StageDirName(stageNum))
+					fmt.Println(strings.Repeat("═", 60))
+					fmt.Println(content)
+					fmt.Println(strings.Repeat("═", 60))
+					fmt.Println()
+					return
+				}
+			}
 
-	// 格式化输出
-	if data, ok := content.(map[string]any); ok {
-		jsonData, _ := json.MarshalIndent(data, "", "  ")
-		fmt.Println(string(jsonData))
-	} else {
-		fmt.Printf("%v\n", content)
+			// 尝试作为代码文件读取
+			if content, err := gWsManager.ReadCodeFile(project.Name, project.ID, stageNum, name); err == nil && content != "" {
+				fmt.Printf("\n📄 %s (%s)\n", name, workspace.StageDirName(stageNum))
+				fmt.Println(strings.Repeat("═", 60))
+				fmt.Println(content)
+				fmt.Println(strings.Repeat("═", 60))
+				fmt.Println()
+				return
+			}
+		}
 	}
-	fmt.Println(strings.Repeat("═", 60))
-	fmt.Println()
+
+	// 回退到内存中的产物（兼容旧数据）
+	content, ok := project.Artifacts[name]
+	if ok {
+		fmt.Printf("\n📄 %s (内存缓存)\n", name)
+		fmt.Println(strings.Repeat("═", 60))
+		if data, ok := content.(map[string]any); ok {
+			jsonData, _ := json.MarshalIndent(data, "", "  ")
+			fmt.Println(string(jsonData))
+		} else {
+			fmt.Printf("%v\n", content)
+		}
+		fmt.Println(strings.Repeat("═", 60))
+		fmt.Println()
+		return
+	}
+
+	fmt.Printf("❌ 产出物 '%s' 不存在\n", name)
+	fmt.Println("\n可用命令:")
+	fmt.Println("  show prd      - 需求文档")
+	fmt.Println("  show design   - 设计文档")
+	fmt.Println("  show code     - 开发产物")
+	fmt.Println("  show main.go  - 代码文件")
+	fmt.Println("\n或用 'artifacts' 查看所有产出物")
 }
 
 func handleApprove(engine *workflow.Engine, session *Session, parts []string) {

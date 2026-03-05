@@ -7,11 +7,13 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"agent-cluster/internal/protocol"
 	"agent-cluster/internal/registry"
+	"agent-cluster/internal/workspace"
 	"agent-cluster/internal/workflow"
 )
 
@@ -249,9 +251,17 @@ func (m *Manager) handleTaskComplete(staffID, taskID string, payload map[string]
 
 	// 获取任务输出
 	var output interface{}
+	var outputs map[string]interface{}
 	if resultData, ok := payload["result"]; ok {
 		data, _ := json.Marshal(resultData)
 		json.Unmarshal(data, &output)
+		// 同时保存为 map 用于产物保存
+		json.Unmarshal(data, &outputs)
+	}
+
+	// 保存产物到工作空间（人类友好格式）
+	if outputs != nil {
+		go m.saveTaskArtifacts(taskID, outputs)
 	}
 
 	// 完成工作流任务（异步，避免阻塞）
@@ -259,6 +269,64 @@ func (m *Manager) handleTaskComplete(staffID, taskID string, payload map[string]
 
 	// 更新员工状态
 	m.registry.UpdateStatus(staffID, protocol.StatusIdle, 0)
+}
+
+// saveTaskArtifacts 保存任务产物到工作空间
+func (m *Manager) saveTaskArtifacts(taskID string, outputs map[string]interface{}) {
+	if m.engine == nil {
+		return
+	}
+
+	task := m.engine.GetTask(taskID)
+	if task == nil {
+		return
+	}
+
+	project := m.engine.GetProject(task.ProjectID)
+	if project == nil {
+		return
+	}
+
+	// 获取阶段编号
+	stageNum := 0
+	switch task.Stage {
+	case workflow.StageRequirement:
+		stageNum = 1
+	case workflow.StageDesign:
+		stageNum = 2
+	case workflow.StageReview:
+		stageNum = 3
+	case workflow.StageDevelop:
+		stageNum = 4
+	case workflow.StageTest:
+		stageNum = 5
+	case workflow.StageDeploy:
+		stageNum = 6
+	}
+
+	if stageNum == 0 || task.WorkspaceDir == "" {
+		return
+	}
+
+	// 转换 TaskResult.Outputs 为 Artifact
+	artifact := workspace.TaskResultToArtifact(outputs, stageNum)
+
+	// 创建临时 workspace manager 保存产物
+	wsManager := workspace.NewManager(filepath.Dir(task.WorkspaceDir))
+
+	// 保存产物
+	if err := wsManager.SaveArtifact(project.Name, project.ID, stageNum, artifact); err != nil {
+		fmt.Fprintf(os.Stderr, "[Boss] 保存产物失败: %v\n", err)
+	} else {
+		// 通知保存成功
+		names := workspace.StageArtifacts[stageNum]
+		if names.Document != "" && artifact.Document != "" {
+			m.AddTaskLog(taskID, "system", "success", fmt.Sprintf("已保存文档: %s", names.Document))
+		}
+		for filename := range artifact.CodeFiles {
+			m.AddTaskLog(taskID, "system", "success", fmt.Sprintf("已保存代码: %s", filename))
+		}
+	}
 }
 
 // handleTaskFailed 处理任务失败
