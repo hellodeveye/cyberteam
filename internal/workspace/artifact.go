@@ -324,6 +324,44 @@ func TaskResultToArtifact(outputs map[string]interface{}, stageNum int) *Artifac
 		}
 	}
 
+	// 如果文档被包裹在 Markdown 代码块中（如 ```json），先提取
+	doc := strings.TrimSpace(artifact.Document)
+	if strings.HasPrefix(doc, "```") {
+		// 尝试提取代码块内容
+		codeBlocks := ParseMarkdownCodeBlocks(artifact.Document)
+		// 优先使用 json 代码块
+		if jsonCode, ok := codeBlocks["json"]; ok && jsonCode != "" {
+			artifact.Metadata["raw_markdown"] = artifact.Document
+			doc = strings.TrimSpace(jsonCode)
+			artifact.Document = doc
+		}
+	}
+
+	// 如果文档是 JSON 格式（LLM 有时会返回嵌套 JSON），尝试提取其中的内容
+	if artifact.Document != "" && strings.HasPrefix(doc, "{") {
+		var nestedDoc map[string]interface{}
+		if err := json.Unmarshal([]byte(doc), &nestedDoc); err == nil {
+			// 尝试提取嵌套的 prd/design/document 字段
+			nestedKeys := []string{"prd", "design", "document", "content"}
+			for _, key := range nestedKeys {
+				if val, ok := nestedDoc[key]; ok {
+					if s, ok := val.(string); ok && s != "" {
+						// 提取成功，原来的整个 JSON 放入 metadata
+						artifact.Metadata["raw_output"] = doc
+						artifact.Document = s
+						break
+					}
+				}
+			}
+			// 提取其他字段到 metadata
+			for key, val := range nestedDoc {
+				if key != "prd" && key != "design" && key != "document" && key != "content" {
+					artifact.Metadata[key] = val
+				}
+			}
+		}
+	}
+
 	// 尝试提取代码
 	codeKeys := []string{"code", "fixed_code", "implementation"}
 	for _, key := range codeKeys {
