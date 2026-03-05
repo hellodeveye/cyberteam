@@ -272,7 +272,7 @@ func (m *Manager) handleTaskComplete(staffID, taskID string, payload map[string]
 }
 
 // saveTaskArtifacts 保存任务产物到工作空间
-func (m *Manager) saveTaskArtifacts(taskID string, outputs map[string]interface{}) {
+func (m *Manager) saveTaskArtifacts(taskID string, taskResult map[string]interface{}) {
 	if m.engine == nil {
 		return
 	}
@@ -306,6 +306,18 @@ func (m *Manager) saveTaskArtifacts(taskID string, outputs map[string]interface{
 
 	if stageNum == 0 || task.WorkspaceDir == "" {
 		return
+	}
+
+	// 从 TaskResult 中提取 Outputs 字段
+	// TaskResult 结构：{ "outputs": {...}, "success": true, ... }
+	var outputs map[string]interface{}
+	if out, ok := taskResult["outputs"]; ok {
+		if outMap, ok := out.(map[string]interface{}); ok {
+			outputs = outMap
+		}
+	}
+	if outputs == nil {
+		outputs = taskResult // 兼容旧格式
 	}
 
 	// 转换 TaskResult.Outputs 为 Artifact
