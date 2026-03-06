@@ -7,6 +7,16 @@ import (
 	"strings"
 )
 
+// StageDirNames 阶段目录名常量
+var StageDirNames = map[int]string{
+	1: "01-requirement",
+	2: "02-design",
+	3: "03-review",
+	4: "04-develop",
+	5: "05-test",
+	6: "06-deploy",
+}
+
 // Manager 工作空间管理器
 type Manager struct {
 	baseDir string
