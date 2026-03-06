@@ -40,8 +40,6 @@ type PrivateChat struct {
 	With      string    // 对方名字
 	StartedAt time.Time // 开始时间
 	History   []ChatMessage // 聊天记录
-	loading   bool      // 是否正在等待回复
-	loadingMu sync.Mutex
 }
 
 // ChatMessage 单条聊天消息
@@ -129,26 +127,6 @@ func (s *Session) AddPrivateChatMessage(from, content string) {
 			Timestamp: time.Now(),
 		})
 	}
-}
-
-// SetLoading 设置 loading 状态
-func (pc *PrivateChat) SetLoading(loading bool) {
-	if pc == nil {
-		return
-	}
-	pc.loadingMu.Lock()
-	defer pc.loadingMu.Unlock()
-	pc.loading = loading
-}
-
-// IsLoading 检查是否正在 loading
-func (pc *PrivateChat) IsLoading() bool {
-	if pc == nil {
-		return false
-	}
-	pc.loadingMu.Lock()
-	defer pc.loadingMu.Unlock()
-	return pc.loading
 }
 
 // GetPrivateChatHistory 获取私聊历史记录（格式化为字符串）
@@ -1744,13 +1722,8 @@ func handleChat(session *Session, args []string) {
 		// 只显示当前私聊对象的消息
 		pc := session.GetPrivateChat()
 		if pc != nil && pc.With == staffName {
-			// 清除 loading 提示
-			if pc.IsLoading() {
-				fmt.Print("\r\033[K") // 清除当前行
-				pc.SetLoading(false)
-			}
 			color := getSenderColor(staffName)
-			fmt.Printf("%s%s%s: %s\n", color, staffName, ColorReset, content)
+			fmt.Printf("\n%s%s%s: %s\n", color, staffName, ColorReset, content)
 			// 添加到历史记录
 			session.AddPrivateChatMessage(staffName, content)
 			// 刷新提示符
@@ -1782,15 +1755,11 @@ func handlePrivateMessage(session *Session, content string) {
 	// 获取历史记录
 	history := session.GetPrivateChatHistory()
 
-	// 本地显示用户消息
-	fmt.Printf("%sKai%s: %s\n", ColorPurple, ColorReset, content)
-
-	// 显示 loading 提示（不换行，等待回复后清除）
-	pc.SetLoading(true)
-	fmt.Printf("\r⏳ %s 正在思考...", pc.With)
-
 	// 发送私聊消息给 Staff（带上历史）
 	go gBoss.SendPrivateMessage(role, "boss", content, history)
+
+	// 本地显示
+	fmt.Printf("%sKai%s: %s\n", ColorPurple, ColorReset, content)
 }
 
 // ANSI 颜色代码
