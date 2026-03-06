@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"cyberteam/internal/workflow"
+	"cyberteam/internal/protocol"
 )
 
 // ProjectData 项目持久化数据
@@ -16,23 +16,23 @@ type ProjectData struct {
 	ID           string                 `json:"id"`
 	Name         string                 `json:"name"`
 	Description  string                 `json:"description"`
-	Status       workflow.Status        `json:"status"`
-	CurrentStage workflow.Stage         `json:"current_stage"`
+	Status       protocol.Status        `json:"status"`
+	CurrentStage protocol.Stage         `json:"current_stage"`
 	WorkspaceDir string                 `json:"workspace_dir"`
 	CreatedAt    time.Time              `json:"created_at"`
 	UpdatedAt    time.Time              `json:"updated_at"`
-	Tasks        []TaskData             `json:"tasks"`
+	Tasks        []WorkflowTaskData     `json:"tasks"`
 	Artifacts    map[string]interface{} `json:"artifacts"`
 }
 
-// TaskData 任务持久化数据
-type TaskData struct {
+// WorkflowTaskData 任务持久化数据
+type WorkflowTaskData struct {
 	ID          string          `json:"id"`
 	ProjectID   string          `json:"project_id"`
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
-	Stage       workflow.Stage  `json:"stage"`
-	Status      workflow.Status `json:"status"`
+	Stage       protocol.Stage  `json:"stage"`
+	Status      protocol.Status `json:"status"`
 	Assignee    string          `json:"assignee"`
 	Input       interface{}     `json:"input"`
 	Output      interface{}     `json:"output"`
@@ -54,7 +54,7 @@ func NewStore(baseDir string) *Store {
 }
 
 // SaveProject 保存项目到磁盘
-func (s *Store) SaveProject(project *workflow.Project) error {
+func (s *Store) SaveProject(project *protocol.Project) error {
 	if project.WorkspaceDir == "" {
 		return fmt.Errorf("project has no workspace dir")
 	}
@@ -74,7 +74,7 @@ func (s *Store) SaveProject(project *workflow.Project) error {
 	// 收集所有任务
 	for _, stageTasks := range project.Tasks {
 		for _, task := range stageTasks {
-			taskData := TaskData{
+			taskData := WorkflowTaskData{
 				ID:          task.ID,
 				ProjectID:   task.ProjectID,
 				Name:        task.Name,
@@ -104,7 +104,7 @@ func (s *Store) SaveProject(project *workflow.Project) error {
 }
 
 // LoadAllProjects 从工作空间加载所有项目
-func (s *Store) LoadAllProjects() ([]*workflow.Project, error) {
+func (s *Store) LoadAllProjects() ([]*protocol.Project, error) {
 	entries, err := os.ReadDir(s.baseDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -113,7 +113,7 @@ func (s *Store) LoadAllProjects() ([]*workflow.Project, error) {
 		return nil, err
 	}
 
-	var projects []*workflow.Project
+	var projects []*protocol.Project
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
@@ -134,7 +134,7 @@ func (s *Store) LoadAllProjects() ([]*workflow.Project, error) {
 }
 
 // LoadProject 从目录加载单个项目
-func (s *Store) LoadProject(projectDir string) (*workflow.Project, error) {
+func (s *Store) LoadProject(projectDir string) (*protocol.Project, error) {
 	filepath := filepath.Join(projectDir, "project.json")
 
 	data, err := os.ReadFile(filepath)
@@ -151,7 +151,7 @@ func (s *Store) LoadProject(projectDir string) (*workflow.Project, error) {
 	}
 
 	// 重建项目
-	project := &workflow.Project{
+	project := &protocol.Project{
 		ID:           projectData.ID,
 		Name:         projectData.Name,
 		Description:  projectData.Description,
@@ -160,13 +160,13 @@ func (s *Store) LoadProject(projectDir string) (*workflow.Project, error) {
 		WorkspaceDir: projectData.WorkspaceDir,
 		CreatedAt:    projectData.CreatedAt,
 		UpdatedAt:    projectData.UpdatedAt,
-		Tasks:        make(map[workflow.Stage][]*workflow.Task),
+		Tasks:        make(map[protocol.Stage][]*protocol.WorkflowTask),
 		Artifacts:    projectData.Artifacts,
 	}
 
 	// 重建任务
 	for _, taskData := range projectData.Tasks {
-		task := &workflow.Task{
+		task := &protocol.WorkflowTask{
 			ID:          taskData.ID,
 			ProjectID:   taskData.ProjectID,
 			Name:        taskData.Name,
@@ -188,17 +188,20 @@ func (s *Store) LoadProject(projectDir string) (*workflow.Project, error) {
 }
 
 // AutoSave 自动保存钩子
-func (s *Store) AutoSave(engine *workflow.Engine) {
+func (s *Store) AutoSave(engine interface {
+	On(event string, handler func(interface{}))
+	GetProject(id string) *protocol.Project
+}) {
 	// 监听事件自动保存
 	engine.On("project.created", func(data interface{}) {
-		project := data.(*workflow.Project)
+		project := data.(*protocol.Project)
 		if err := s.SaveProject(project); err != nil {
 			fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
 		}
 	})
 
 	engine.On("task.created", func(data interface{}) {
-		task := data.(*workflow.Task)
+		task := data.(*protocol.WorkflowTask)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
 			if err := s.SaveProject(project); err != nil {
@@ -208,7 +211,7 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 	})
 
 	engine.On("task.assigned", func(data interface{}) {
-		task := data.(*workflow.Task)
+		task := data.(*protocol.WorkflowTask)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
 			if err := s.SaveProject(project); err != nil {
@@ -218,7 +221,7 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 	})
 
 	engine.On("task.completed", func(data interface{}) {
-		task := data.(*workflow.Task)
+		task := data.(*protocol.WorkflowTask)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
 			if err := s.SaveProject(project); err != nil {
@@ -228,7 +231,7 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 	})
 
 	engine.On("task.rejected", func(data interface{}) {
-		task := data.(*workflow.Task)
+		task := data.(*protocol.WorkflowTask)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
 			if err := s.SaveProject(project); err != nil {

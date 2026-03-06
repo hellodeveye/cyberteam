@@ -10,9 +10,9 @@ import (
 
 // OutputHandler 统一的输出处理器
 type OutputHandler struct {
-	role       string
-	writer     *artifact.Writer
-	adapter    adapter.StaffOutputAdapter
+	role    string
+	writer  *artifact.Writer
+	adapter adapter.StaffOutputAdapter
 }
 
 // NewOutputHandler 创建输出处理器
@@ -33,7 +33,7 @@ func (h *OutputHandler) SetupStage(stageName string) error {
 }
 
 // ProcessAndWrite 处理 LLM 输出并写入文件
-// 
+//
 // 参数:
 //   - task: 当前任务
 //   - stageNum: 阶段编号 (1-6)
@@ -72,7 +72,7 @@ func (h *OutputHandler) ProcessAndWrite(
 	// 4. 写入文件
 	var writtenFiles []string
 	errors := h.writer.WriteArtifacts(stageNum, stageName, artifacts)
-	
+
 	for _, art := range artifacts {
 		writtenFiles = append(writtenFiles, art.Path)
 	}

@@ -82,18 +82,18 @@ func main() {
 
 	// 设置会议处理器（方案二）
 	meetingParticipant := staffutil.NewMeetingParticipant("developer", *name, prof, llmClient, *model)
-	
+
 	// 设置 MCP 客户端（通过 BaseWorker 调用）
 	mcpClient := staffutil.NewMCPClient(staff.BaseWorker.CallMCP)
 	meetingParticipant.MCPClient = mcpClient
-	
-	worker.SetMeetingHandler(&StaffMeetingHandler{
+
+	staff.BaseWorker.SetMeetingHandler(&StaffMeetingHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})
 
 	// 设置私聊处理器
-	worker.SetPrivateHandler(&StaffPrivateHandler{
+	staff.BaseWorker.SetPrivateHandler(&StaffPrivateHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})

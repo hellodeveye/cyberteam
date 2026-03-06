@@ -85,13 +85,13 @@ func main() {
 	mcpClient := staffutil.NewMCPClient(staff.BaseWorker.CallMCP)
 	meetingParticipant.MCPClient = mcpClient
 
-	worker.SetMeetingHandler(&ProductMeetingHandler{
+	staff.BaseWorker.SetMeetingHandler(&ProductMeetingHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})
 
 	// 设置私聊处理器
-	worker.SetPrivateHandler(&ProductPrivateHandler{
+	staff.BaseWorker.SetPrivateHandler(&ProductPrivateHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})
@@ -181,7 +181,7 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 	// 使用新的输出系统写入文件
 	if task.WorkspaceDir != "" {
 		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入 PRD 文档..."}}
-		
+
 		handler := staffutil.NewOutputHandler("product", task.WorkspaceDir)
 		files, err := handler.ProcessAndWrite(task, 1, "requirement", resp.Content)
 		if err != nil {

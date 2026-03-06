@@ -18,9 +18,9 @@ type Config struct {
 }
 
 type Settings struct {
-	Timeout         time.Duration `yaml:"timeout"`
-	MaxConcurrent   int           `yaml:"max_concurrent"`
-	Logging         bool          `yaml:"logging"`
+	Timeout       time.Duration `yaml:"timeout"`
+	MaxConcurrent int           `yaml:"max_concurrent"`
+	Logging       bool          `yaml:"logging"`
 }
 
 // Server 单个 MCP Server 配置
@@ -35,9 +35,9 @@ type Server struct {
 
 // ACL 访问控制
 type ACL struct {
-	Roles         []string `yaml:"roles"`
-	AllowedTools  []string `yaml:"allowed_tools"`
-	DeniedTools   []string `yaml:"denied_tools"`
+	Roles        []string `yaml:"roles"`
+	AllowedTools []string `yaml:"allowed_tools"`
+	DeniedTools  []string `yaml:"denied_tools"`
 }
 
 // LoadConfig 加载 MCP 配置文件

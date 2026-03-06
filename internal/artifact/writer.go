@@ -22,9 +22,9 @@ const (
 // Artifact 单个产出物
 type Artifact struct {
 	Type     Type
-	Path     string            // 相对路径，如 "src/main.go"
-	Content  string            // 文件内容
-	Metadata map[string]any    // 额外元数据
+	Path     string         // 相对路径，如 "src/main.go"
+	Content  string         // 文件内容
+	Metadata map[string]any // 额外元数据
 }
 
 // Writer Artifact 写入器

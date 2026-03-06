@@ -29,7 +29,7 @@ func NewManager(baseDir string) *Manager {
 
 // CreateProjectWorkspace 创建项目工作空间
 func (m *Manager) CreateProjectWorkspace(projectID, projectName string) (string, error) {
-	projectDir := filepath.Join(m.baseDir, sanitize(projectName)+"-"+projectID[:8])
+	projectDir := filepath.Join(m.baseDir, sanitize(projectName)+"-"+truncateID(projectID, 8))
 
 	dirs := []string{
 		projectDir,
@@ -69,7 +69,7 @@ func (m *Manager) CreateProjectWorkspace(projectID, projectName string) (string,
 
 // GetProjectDir 获取项目目录
 func (m *Manager) GetProjectDir(projectName, projectID string) string {
-	return filepath.Join(m.baseDir, sanitize(projectName)+"-"+projectID[:8])
+	return filepath.Join(m.baseDir, sanitize(projectName)+"-"+truncateID(projectID, 8))
 }
 
 // GetStageDir 获取阶段目录
@@ -91,6 +91,13 @@ func (m *Manager) GetStageDir(projectName, projectID string, stageNum int) strin
 
 // WriteFile 写入文件到工作空间
 func (m *Manager) WriteFile(projectName, projectID string, stageNum int, filename string, content []byte) error {
+	// 安全检查：防止路径遍历攻击
+	// 使用 filepath.Base 提取纯文件名，去除任何路径组件
+	filename = filepath.Base(filename)
+	if filename == "" || filename == "." {
+		return fmt.Errorf("invalid filename: empty or reserved name")
+	}
+
 	dir := m.GetStageDir(projectName, projectID, stageNum)
 	filepath := filepath.Join(dir, filename)
 	return os.WriteFile(filepath, content, 0644)
@@ -98,6 +105,12 @@ func (m *Manager) WriteFile(projectName, projectID string, stageNum int, filenam
 
 // ReadFile 读取文件
 func (m *Manager) ReadFile(projectName, projectID string, stageNum int, filename string) ([]byte, error) {
+	// 安全检查：防止路径遍历攻击
+	filename = filepath.Base(filename)
+	if filename == "" || filename == "." {
+		return nil, fmt.Errorf("invalid filename: empty or reserved name")
+	}
+
 	dir := m.GetStageDir(projectName, projectID, stageNum)
 	filepath := filepath.Join(dir, filename)
 	return os.ReadFile(filepath)
@@ -156,6 +169,14 @@ func (m *Manager) ListAllArtifacts(projectName, projectID string) map[string][]s
 }
 
 // sanitize 清理目录名
+// truncateID 截断ID到指定长度，防止切片越界
+func truncateID(id string, maxLen int) string {
+	if len(id) <= maxLen {
+		return id
+	}
+	return id[:maxLen]
+}
+
 func sanitize(name string) string {
 	// 替换不安全字符
 	replacer := []struct {
