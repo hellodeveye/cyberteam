@@ -222,19 +222,6 @@ func main() {
 	// 显示帮助
 	printHelp()
 
-	// 启动消息显示 goroutine
-	go func() {
-		for {
-			msgQueue.Wait()
-			msgs := msgQueue.PopAll()
-			for _, msg := range msgs {
-				fmt.Printf("\r%-80s\n", "")
-				fmt.Println(msg)
-				fmt.Print(session.GetPrompt())
-			}
-		}
-	}()
-
 	// 交互式命令行（使用 readline 支持中文和 Ctrl+C）
 	rl, err := readline.New(session.GetPrompt())
 	if err != nil {
@@ -255,6 +242,19 @@ func main() {
 	}
 	defer rl.Close()
 
+	// 启动消息显示 goroutine（在 rl 创建后，以便调用 Refresh）
+	go func() {
+		for {
+			msgQueue.Wait()
+			msgs := msgQueue.PopAll()
+			for _, msg := range msgs {
+				fmt.Printf("\r%-80s\n", "")
+				fmt.Println(msg)
+				rl.Refresh()
+			}
+		}
+	}()
+
 	// 设置 Ctrl+C 处理
 	var doubleCtrlC bool
 
@@ -273,7 +273,7 @@ func main() {
 			// 第一次 Ctrl+C，清空当前行
 			doubleCtrlC = true
 			fmt.Println("\n(输入已清空)")
-			fmt.Print(session.GetPrompt())
+			// readline 会自动刷新提示符，不需要手动打印
 			continue
 		}
 		doubleCtrlC = false // 重置标志
@@ -288,12 +288,12 @@ func main() {
 
 		line = strings.TrimSpace(line)
 		if line == "" {
-			fmt.Print(session.GetPrompt())
 			continue
 		}
 
 		processInput(line, engine, boss, session)
-		fmt.Print(session.GetPrompt())
+		// 更新提示符（会议状态可能改变）
+		rl.SetPrompt(session.GetPrompt())
 	}
 }
 
