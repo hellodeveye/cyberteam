@@ -120,7 +120,7 @@ func (mq *MessageQueue) Wait() {
 }
 
 func main() {
-	fmt.Println("🏢 AI Agent 软件公司")
+	fmt.Println("🏢 CyberTeam")
 	fmt.Println("====================")
 
 	// 获取项目路径

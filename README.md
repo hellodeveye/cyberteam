@@ -446,7 +446,7 @@ Stage{
 
 ```bash
 # Boss 重启后自动恢复
-🏢 AI Agent 软件公司
+🏢 CyberTeam
 
 📂 已加载 3 个历史项目
    - TodoApp (completed)
