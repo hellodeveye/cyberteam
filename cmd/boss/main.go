@@ -58,6 +58,13 @@ func (s *Session) GetMeeting() *meeting.Meeting {
 	return s.currentMeeting
 }
 
+// InMeeting 检查是否在会议中
+func (s *Session) InMeeting() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentMeeting != nil
+}
+
 func (s *Session) GetPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -290,10 +297,45 @@ func main() {
 	}
 }
 
+// 内置命令列表（会议模式下需要区分的命令）
+var builtinCommands = map[string]bool{
+	"new": true, "projects": true, "ls": true,
+	"project": true, "cd": true,
+	"..": true,
+	"status": true, "st": true,
+	"tasks": true,
+	"watch": true,
+	"artifacts": true, "art": true,
+	"show": true, "cat": true,
+	"approve": true, "ok": true,
+	"reject": true, "no": true,
+	"team": true,
+	"meeting": true, "mtg": true, "m": true,
+	"help": true, "h": true,
+	"exit": true, "quit": true,
+}
+
+// isBuiltinCommand 检查是否是内置命令
+func isBuiltinCommand(cmd string) bool {
+	return builtinCommands[cmd]
+}
+
 // processInput 处理用户输入
 func processInput(line string, engine *workflow.Engine, boss *master.Manager, session *Session) {
 	parts := strings.SplitN(line, " ", 3)
 	cmd := parts[0]
+
+	// 方案 C: 会议模式下，非命令输入 = 直接发言
+	if session.InMeeting() && !isBuiltinCommand(cmd) {
+		if strings.HasPrefix(line, "@") {
+			// @开头 = 点名发言
+			handleDirectMention(session, line)
+		} else {
+			// 自由发言
+			handleDirectSay(session, line)
+		}
+		return
+	}
 
 	switch cmd {
 	case "new":
@@ -322,10 +364,6 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 		boss.ShowTeam()
 	case "meeting", "mtg", "m":
 		handleMeeting(session, parts)
-	case "say":
-		handleMeetingSay(session, parts[1:])
-	case "ask":
-		handleMeetingAsk(session, parts[1:])
 	case "help", "h":
 		printHelp()
 	case "exit", "quit":
@@ -1301,6 +1339,88 @@ func handleMeetingAsk(session *Session, args []string) {
 	// 发送消息给指定的 Staff
 	go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", question, true, transcript)
 	fmt.Printf("🎯 已向 @%s 提问\n", staff)
+}
+
+// handleDirectSay 直接自由发言（方案 C）
+func handleDirectSay(session *Session, content string) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		return
+	}
+
+	if content == "" {
+		return
+	}
+
+	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgText, content)
+	if err != nil {
+		fmt.Printf("❌ 发送失败: %v\n", err)
+		return
+	}
+
+	// 自由模式下，随机选择 1-2 人回复
+	transcript := mtg.GetTranscript()
+	go gBoss.BroadcastMeetingMessageRandom(mtg.ID, "boss", content, 2, transcript)
+}
+
+// handleDirectMention 直接 @ 点名发言（方案 C）
+func handleDirectMention(session *Session, line string) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		return
+	}
+
+	// 解析 @名字 内容
+	// 格式: @李开发 内容 或 @李开发 @张产品 内容
+	parts := strings.SplitN(line[1:], " ", 2) // 去掉开头的@
+	if len(parts) < 1 {
+		return
+	}
+
+	// 提取所有 @ 的名字
+	var names []string
+	content := line
+	for strings.HasPrefix(content, "@") {
+		p := strings.SplitN(content[1:], " ", 2)
+		if len(p) >= 1 {
+			names = append(names, p[0])
+			if len(p) >= 2 {
+				content = p[1]
+			} else {
+				content = ""
+				break
+			}
+		} else {
+			break
+		}
+	}
+
+	if len(names) == 0 {
+		return
+	}
+
+	// 构建完整内容（包含 @ 标记）
+	fullContent := line
+
+	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgMention, fullContent)
+	if err != nil {
+		fmt.Printf("❌ 发送失败: %v\n", err)
+		return
+	}
+
+	// 获取会议历史
+	transcript := mtg.GetTranscript()
+
+	// 发送给所有被 @ 的人
+	for _, name := range names {
+		staffRole := name
+		if role, ok := nameToRole[name]; ok {
+			staffRole = role
+		}
+		go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", fullContent, true, transcript)
+	}
+
+	fmt.Printf("📢 已通知: %v\n", names)
 }
 
 func handleMeetingEnd(session *Session) {
