@@ -1336,7 +1336,6 @@ func handleMeetingSay(session *Session, args []string) {
 		for _, role := range mentioned {
 			go gBoss.SendMeetingMessage(role, mtg.ID, "boss", content, true, transcript)
 		}
-		fmt.Printf("📢 已通知: %v\n", mentioned)
 	} else {
 		// 自由模式下，随机选择 1-2 人回复（避免太吵）
 		transcript := mtg.GetTranscript()
@@ -1458,8 +1457,6 @@ func handleDirectMention(session *Session, line string) {
 		}
 		go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", fullContent, true, transcript)
 	}
-
-	fmt.Printf("📢 已通知: %v\n", names)
 }
 
 func handleMeetingEnd(session *Session) {
