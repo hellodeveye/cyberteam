@@ -28,9 +28,9 @@ func main() {
 	var (
 		id      = flag.String("id", "", "Staff ID")
 		name    = flag.String("name", "", "Staff name")
-		apiKey  = flag.String("api-key", os.Getenv("DEEPSEEK_API_KEY"), "DeepSeek API Key")
-		baseURL = flag.String("base-url", getEnv("DEEPSEEK_BASE_URL", "https://api.deepseek.com/v1"), "DeepSeek Base URL")
-		model   = flag.String("model", getEnv("DEEPSEEK_MODEL", "deepseek-chat"), "LLM Model")
+		apiKey  = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "OpenAI API Key")
+		baseURL = flag.String("base-url", getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"), "OpenAI Base URL")
+		model   = flag.String("model", getEnv("OPENAI_MODEL", "gpt-4o"), "LLM Model")
 	)
 	flag.Parse()
 
@@ -47,7 +47,7 @@ func main() {
 	var llmClient llm.Client
 	if *apiKey != "" {
 		llmClient = llm.NewOpenAIClient(*apiKey, *baseURL)
-		fmt.Fprintf(os.Stderr, "[%s] 已连接到 DeepSeek: %s\n", *name, *model)
+		fmt.Fprintf(os.Stderr, "[%s] 已连接到 LLM: %s\n", *name, *model)
 	} else {
 		llmClient = &llm.MockClient{
 			Responses: []string{
@@ -57,7 +57,7 @@ func main() {
 				"建议补充自动化测试用例，确保回归覆盖。",
 			},
 		}
-		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 DEEPSEEK_API_KEY 启用真实 LLM）\n", *name)
+		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 OPENAI_API_KEY 启用真实 LLM）\n", *name)
 	}
 
 	// 加载 Profile
