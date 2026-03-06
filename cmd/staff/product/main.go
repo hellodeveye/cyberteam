@@ -390,6 +390,6 @@ type ProductPrivateHandler struct {
 }
 
 // HandlePrivateMessage 处理私聊消息
-func (h *ProductPrivateHandler) HandlePrivateMessage(from string, content string) string {
-	return h.Participant.GenerateReply("", "私聊", "", from, content, true)
+func (h *ProductPrivateHandler) HandlePrivateMessage(from string, content string, history string) string {
+	return h.Participant.GenerateReply("", "私聊", history, from, content, true)
 }

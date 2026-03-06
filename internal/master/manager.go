@@ -800,7 +800,7 @@ func (m *Manager) IsStaffOnline(role string) bool {
 }
 
 // SendPrivateMessage 发送私聊消息给指定角色的员工
-func (m *Manager) SendPrivateMessage(role, from, content string) error {
+func (m *Manager) SendPrivateMessage(role, from, content, history string) error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -813,6 +813,7 @@ func (m *Manager) SendPrivateMessage(role, from, content string) error {
 				Payload: map[string]any{
 					"from":    from,
 					"content": content,
+					"history": history,
 				},
 			}
 			data, err := json.Marshal(msg)

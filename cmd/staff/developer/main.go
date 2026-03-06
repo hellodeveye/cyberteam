@@ -574,7 +574,7 @@ type StaffPrivateHandler struct {
 }
 
 // HandlePrivateMessage 处理私聊消息
-func (h *StaffPrivateHandler) HandlePrivateMessage(from string, content string) string {
-	// 私聊就是一对一的会议，mentioned 为 true
-	return h.Participant.GenerateReply("", "私聊", "", from, content, true)
+func (h *StaffPrivateHandler) HandlePrivateMessage(from string, content string, history string) string {
+	// 私聊就是一对一的会议，mentioned 为 true，传入历史记录
+	return h.Participant.GenerateReply("", "私聊", history, from, content, true)
 }

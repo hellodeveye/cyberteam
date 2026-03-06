@@ -37,6 +37,14 @@ type Session struct {
 type PrivateChat struct {
 	With      string    // 对方名字
 	StartedAt time.Time // 开始时间
+	History   []ChatMessage // 聊天记录
+}
+
+// ChatMessage 单条聊天消息
+type ChatMessage struct {
+	From      string
+	Content   string
+	Timestamp time.Time
 }
 
 func NewSession() *Session {
@@ -81,6 +89,7 @@ func (s *Session) SetPrivateChat(with string) {
 	s.privateChat = &PrivateChat{
 		With:      with,
 		StartedAt: time.Now(),
+		History:   []ChatMessage{},
 	}
 }
 
@@ -103,6 +112,33 @@ func (s *Session) ExitPrivateChat() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.privateChat = nil
+}
+
+// AddPrivateChatMessage 添加一条私聊消息到历史
+func (s *Session) AddPrivateChatMessage(from, content string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.privateChat != nil {
+		s.privateChat.History = append(s.privateChat.History, ChatMessage{
+			From:      from,
+			Content:   content,
+			Timestamp: time.Now(),
+		})
+	}
+}
+
+// GetPrivateChatHistory 获取私聊历史记录（格式化为字符串）
+func (s *Session) GetPrivateChatHistory() string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if s.privateChat == nil || len(s.privateChat.History) == 0 {
+		return ""
+	}
+	var lines []string
+	for _, msg := range s.privateChat.History {
+		lines = append(lines, fmt.Sprintf("%s: %s", msg.From, msg.Content))
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (s *Session) GetPrompt() string {
@@ -1652,6 +1688,8 @@ func handleChat(session *Session, args []string) {
 		if pc != nil && pc.With == staffName {
 			color := getSenderColor(staffName)
 			fmt.Printf("\n%s%s%s: %s\n", color, staffName, ColorReset, content)
+			// 添加到历史记录
+			session.AddPrivateChatMessage(staffName, content)
 			// 刷新提示符
 			fmt.Print(session.GetPrompt())
 		}
@@ -1675,8 +1713,14 @@ func handlePrivateMessage(session *Session, content string) {
 		return
 	}
 
-	// 发送私聊消息给 Staff
-	go gBoss.SendPrivateMessage(role, "boss", content)
+	// 添加消息到历史
+	session.AddPrivateChatMessage("Kai", content)
+
+	// 获取历史记录
+	history := session.GetPrivateChatHistory()
+
+	// 发送私聊消息给 Staff（带上历史）
+	go gBoss.SendPrivateMessage(role, "boss", content, history)
 
 	// 本地显示
 	fmt.Printf("%sKai%s: %s\n", ColorPurple, ColorReset, content)

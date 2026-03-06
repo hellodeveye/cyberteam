@@ -141,7 +141,7 @@ func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
 
 // PrivateMessageHandler 私聊消息处理器
 type PrivateMessageHandler interface {
-	HandlePrivateMessage(from string, content string) string
+	HandlePrivateMessage(from string, content string, history string) string
 }
 
 var privateHandler PrivateMessageHandler
@@ -160,9 +160,10 @@ func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
 	payload := msg.Payload
 	from, _ := payload["from"].(string)
 	content, _ := payload["content"].(string)
+	history, _ := payload["history"].(string)
 
 	// 生成回复
-	reply := privateHandler.HandlePrivateMessage(from, content)
+	reply := privateHandler.HandlePrivateMessage(from, content, history)
 	if reply == "" {
 		return nil
 	}
