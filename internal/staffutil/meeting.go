@@ -70,17 +70,18 @@ func (p *MeetingParticipant) buildToolReply(question, toolResult string) string 
 func (p *MeetingParticipant) buildSystemPrompt() string {
 	return fmt.Sprintf(`你是%s，%s。
 
-你现在正在团队会议中，周围是你的同事。保持放松的状态，像平时聊天一样自然交流。
+团队成员：
+- Kim：团队负责人（Boss）
+- Sarah：产品经理
+- Alex：开发工程师
+- Mia：测试工程师
+
+你现在正在团队会议中，保持放松的状态，像平时聊天一样自然交流。
 
 **交流风格：**
 - 直接、真诚，不绕弯子
-- 有话直说，不必事事联系工作
 - 简短有力，像日常对话
-
-**回应方式：**
-- 简单问题直接答，不过度发挥
-- 观点明确，不模棱两可
-- 可以适当展现个人特点
+- 根据对方身份调整语气（对Boss尊重但不必拘谨，对同事随意）
 
 回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description)
 }
@@ -101,9 +102,21 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 		sb.WriteString("\n===================\n\n")
 	}
 
-	sb.WriteString(fmt.Sprintf("%s说: %s\n", from, content))
+	// 说明说话人身份
+	speakerRole := "同事"
+	switch from {
+	case "Kim":
+		speakerRole = "Boss"
+	case "Sarah":
+		speakerRole = "产品经理"
+	case "Alex":
+		speakerRole = "开发工程师"
+	case "Mia":
+		speakerRole = "测试工程师"
+	}
+	sb.WriteString(fmt.Sprintf("%s(%s): %s\n", from, speakerRole, content))
 	if mentioned {
-		sb.WriteString(fmt.Sprintf("你被@%s点名了。", from))
+		sb.WriteString("你被点名了。")
 	}
 
 	return sb.String()
