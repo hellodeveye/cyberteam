@@ -397,12 +397,11 @@ func printHelp() {
 	fmt.Println("  meeting start <主题> [--mode free|round]  开始会议")
 	fmt.Println("  meeting list                              列出会议")
 	fmt.Println("  meeting join <ID>                         加入会议")
-	fmt.Println("  say <内容>                                发言")
-	fmt.Println("  ask <人> <问题>                           点名提问")
 	fmt.Println("  meeting end                               结束会议")
 	fmt.Println()
-	fmt.Println("💡 提示: 先用 'project <ID>' 进入项目，然后直接操作")
-	fmt.Println("        或用 'meeting start' 开独立会议")
+	fmt.Println("💡 提示: 进入会议后，直接输入内容即可发言")
+	fmt.Println("        @李开发 你的问题    - 点名指定人回答")
+	fmt.Println("        大家好              - 自由发言（随机人回复）")
 	fmt.Println()
 }
 
@@ -1203,10 +1202,10 @@ func handleMeetingStart(session *Session, args []string) {
 	fmt.Printf("📋 ID: %s\n", mtg.ID)
 	fmt.Printf("👥 参与者: %s\n", strings.Join(participants, ", "))
 	fmt.Printf("📌 模式: %s\n", mode)
-	fmt.Println("\n💡 提示:")
-	fmt.Println("   say <内容>    - 发言")
-	fmt.Println("   ask <人> <问题> - 点名提问")
-	fmt.Println("   meeting end   - 结束会议")
+	fmt.Println("\n💡 直接输入发言，或 @某人 点名:")
+	fmt.Println("   大家好           - 自由发言")
+	fmt.Println("   @李开发 评估一下  - 点名提问")
+	fmt.Println("   meeting end      - 结束会议")
 }
 
 func handleMeetingList() {
@@ -1258,6 +1257,7 @@ func handleMeetingJoin(session *Session, args []string) {
 
 	fmt.Printf("\n🎤 已进入会议 [%s]\n", mtg.Topic)
 	fmt.Printf("📋 状态: %s | 消息: %d条\n", mtg.Status, len(mtg.Messages))
+	fmt.Println("\n💡 直接输入发言，或 @某人 点名")
 
 	if len(mtg.Messages) > 0 {
 		fmt.Println("\n📜 最近消息:")
