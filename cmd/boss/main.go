@@ -1,10 +1,10 @@
 package main
 
 import (
-	"agent-cluster/internal/master"
-	"agent-cluster/internal/storage"
-	"agent-cluster/internal/workflow"
-	"agent-cluster/internal/workspace"
+	"cyber-company/internal/master"
+	"cyber-company/internal/storage"
+	"cyber-company/internal/workflow"
+	"cyber-company/internal/workspace"
 	"bufio"
 	"encoding/json"
 	"fmt"

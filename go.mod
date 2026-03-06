@@ -1,4 +1,4 @@
-module agent-cluster
+module cyber-company
 
 go 1.22
 

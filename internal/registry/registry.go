@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"agent-cluster/internal/protocol"
+	"cyber-company/internal/protocol"
 	"fmt"
 	"sync"
 )

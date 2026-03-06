@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"agent-cluster/internal/protocol"
-	"agent-cluster/internal/registry"
-	"agent-cluster/internal/workspace"
-	"agent-cluster/internal/workflow"
+	"cyber-company/internal/protocol"
+	"cyber-company/internal/registry"
+	"cyber-company/internal/workspace"
+	"cyber-company/internal/workflow"
 )
 
 // Manager 项目经理

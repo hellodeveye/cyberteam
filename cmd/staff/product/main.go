@@ -1,10 +1,10 @@
 package main
 
 import (
-	"agent-cluster/internal/llm"
-	"agent-cluster/internal/profile"
-	"agent-cluster/internal/protocol"
-	"agent-cluster/internal/worker"
+	"cyber-company/internal/llm"
+	"cyber-company/internal/profile"
+	"cyber-company/internal/protocol"
+	"cyber-company/internal/worker"
 	"encoding/json"
 	"flag"
 	"fmt"

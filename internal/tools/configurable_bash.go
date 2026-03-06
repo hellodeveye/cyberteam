@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"agent-cluster/internal/profile"
+	"cyber-company/internal/profile"
 )
 
 // ConfigurableBashTool 基于配置的可配置 Bash 工具
