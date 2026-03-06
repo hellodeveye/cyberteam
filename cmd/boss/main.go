@@ -281,31 +281,16 @@ func main() {
 		}
 	})
 
-	// 召集员工
-	staffs := []struct {
-		role   string
-		name   string
-		binary string
-		emoji  string
-	}{
-		{"product", "Sarah", filepath.Join(rootDir, "cmd/staff/product/product"), "👩‍💼"},
-		{"developer", "Alex", filepath.Join(rootDir, "cmd/staff/developer/developer"), "👨‍💻"},
-		{"tester", "Mia", filepath.Join(rootDir, "cmd/staff/tester/tester"), "🧪"},
-	}
+	// 召集员工 - 自发现机制
+	staffDir := filepath.Join(rootDir, "cmd/staff")
 
 	fmt.Println("\n🎯 正在召集团队...")
-	descriptions := map[string]string{
-		"Sarah": "产品经理（咖啡成瘾，纸笔画图派）",
-		"Alex":  "架构师（代码洁癖，键盘收藏家）",
-		"Mia":   "测试专家（找茬天赋，清单强迫症）",
+	discovered, err := boss.DiscoverStaffs(staffDir)
+	if err != nil {
+		fmt.Printf("❌ 召集团队失败: %v\n", err)
 	}
-	for _, s := range staffs {
-		if _, err := boss.HireStaff(s.role, s.name, s.binary); err != nil {
-			fmt.Printf("❌ %s %s 打卡失败: %v\n", s.emoji, s.name, err)
-		} else {
-			fmt.Printf("   %s %s - %s\n", s.emoji, s.name, descriptions[s.name])
-			time.Sleep(200 * time.Millisecond)
-		}
+	if len(discovered) == 0 {
+		fmt.Println("⚠️ 未发现任何员工，请检查 cmd/staff/ 目录")
 	}
 
 	fmt.Println("\n✅ 全员到齐，准备开工！")
@@ -436,15 +421,15 @@ func main() {
 var builtinCommands = map[string]bool{
 	"new": true, "projects": true, "ls": true,
 	"project": true, "cd": true,
-	"..": true,
+	"..":     true,
 	"status": true, "st": true,
-	"tasks": true,
-	"watch": true,
+	"tasks":     true,
+	"watch":     true,
 	"artifacts": true, "art": true,
 	"show": true, "cat": true,
 	"approve": true, "ok": true,
 	"reject": true, "no": true,
-	"team": true,
+	"team":    true,
 	"meeting": true, "mtg": true, "m": true,
 	"chat": true, "c": true,
 	"help": true, "h": true,
@@ -1763,10 +1748,10 @@ const (
 
 // 角色颜色映射
 var roleColors = map[string]string{
-	"product":   ColorGreen,   // 产品 - 绿色
-	"developer": ColorBlue,    // 开发 - 蓝色
-	"tester":    ColorYellow,  // 测试 - 黄色
-	"boss":      ColorPurple,  // Boss - 紫色
+	"product":   ColorGreen,  // 产品 - 绿色
+	"developer": ColorBlue,   // 开发 - 蓝色
+	"tester":    ColorYellow, // 测试 - 黄色
+	"boss":      ColorPurple, // Boss - 紫色
 }
 
 // 名字到角色的映射
