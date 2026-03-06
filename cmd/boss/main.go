@@ -312,15 +312,8 @@ func main() {
 
 		// 异步启动 MCP Server，避免阻塞主线程
 		go func() {
-			fmt.Println("🚀 正在启动 MCP 工具...")
 			if err := mcpManager.StartAll(); err != nil {
 				fmt.Fprintf(os.Stderr, "⚠️ MCP 启动失败: %v\n", err)
-			} else {
-				fmt.Println("✅ MCP 工具就绪！")
-				// 显示可用工具
-				for name, status := range mcpManager.GetServerStatus() {
-					fmt.Printf("   - %s: %s\n", name, status)
-				}
 			}
 		}()
 	}
@@ -437,8 +430,9 @@ var builtinCommands = map[string]bool{
 	"team":    true,
 	"meeting": true, "mtg": true, "m": true,
 	"chat": true, "c": true,
-	"help": true, "h": true,
-	"exit": true, "quit": true,
+	"mcp":     true,
+	"help":    true, "h": true,
+	"exit":    true, "quit": true,
 }
 
 // isBuiltinCommand 检查是否是内置命令
@@ -505,6 +499,8 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 		handleMeeting(session, parts)
 	case "chat", "c":
 		handleChat(session, parts[1:])
+	case "mcp":
+		handleMCPStatus()
 	case "help", "h":
 		printHelp()
 	case "exit", "quit":
@@ -515,6 +511,32 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 	default:
 		fmt.Println("未知命令，输入 'help' 查看帮助")
 	}
+}
+
+func handleMCPStatus() {
+	if gMCPManager == nil {
+		fmt.Println("❌ MCP 未初始化")
+		return
+	}
+
+	fmt.Println("\n🛠️ MCP 工具状态:")
+	fmt.Println(strings.Repeat("-", 40))
+
+	status := gMCPManager.GetServerStatus()
+	if len(status) == 0 {
+		fmt.Println("  无可用 MCP Server")
+		return
+	}
+
+	for name, s := range status {
+		icon := "❌"
+		if s == "ready" {
+			icon = "✅"
+		}
+		fmt.Printf("  %s %s: %s\n", icon, name, s)
+	}
+
+	fmt.Println()
 }
 
 func printHelp() {
@@ -547,6 +569,9 @@ func printHelp() {
 	fmt.Println("💬 私聊命令:")
 	fmt.Println("  chat <name>             和指定员工私聊")
 	fmt.Println("  ..                      退出私聊")
+	fmt.Println()
+	fmt.Println("🛠️ MCP 工具:")
+	fmt.Println("  mcp                     查看 MCP 工具状态")
 	fmt.Println()
 }
 
