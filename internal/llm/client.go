@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"time"
 )
 
@@ -63,11 +64,22 @@ func NewOpenAIClient(apiKey, baseURL string) *OpenAIClient {
 	}
 }
 
+// getDefaultModel 从环境变量获取默认模型
+func getDefaultModel() string {
+	if model := os.Getenv("OPENAI_MODEL"); model != "" {
+		return model
+	}
+	if model := os.Getenv("DEEPSEEK_MODEL"); model != "" {
+		return model
+	}
+	return "deepseek-chat"
+}
+
 // Complete 发送对话请求
 func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Response, error) {
 	if opts == nil {
 		opts = &CompleteOptions{
-			Model:       "deepseek-chat",
+			Model:       getDefaultModel(),
 			Temperature: 0.7,
 			MaxTokens:   2000,
 		}
