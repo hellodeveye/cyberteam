@@ -30,6 +30,10 @@ type BaseWorker struct {
 	// MCP 调用等待通道
 	mcpPending map[string]chan *protocol.Message
 	mcpMu      sync.RWMutex
+
+	// 消息处理器（替代全局变量）
+	meetingHandler MeetingMessageHandler
+	privateHandler PrivateMessageHandler
 }
 
 // NewBaseWorker 创建员工
@@ -111,16 +115,14 @@ type MeetingMessageHandler interface {
 	HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string
 }
 
-var meetingHandler MeetingMessageHandler
-
-// SetMeetingHandler 设置会议处理器
-func SetMeetingHandler(handler MeetingMessageHandler) {
-	meetingHandler = handler
+// SetMeetingHandler 设置会议处理器（实例方法）
+func (w *BaseWorker) SetMeetingHandler(handler MeetingMessageHandler) {
+	w.meetingHandler = handler
 }
 
 // handleMeetingMessage 处理会议消息
 func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
-	if meetingHandler == nil {
+	if w.meetingHandler == nil {
 		return nil
 	}
 
@@ -132,7 +134,7 @@ func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
 	transcript, _ := payload["transcript"].(string) // 获取会议历史
 
 	// 生成回复（传入历史记录）
-	reply := meetingHandler.HandleMeetingMessage(meetingID, from, content, mentioned, transcript)
+	reply := w.meetingHandler.HandleMeetingMessage(meetingID, from, content, mentioned, transcript)
 	if reply == "" {
 		return nil
 	}
@@ -153,16 +155,14 @@ type PrivateMessageHandler interface {
 	HandlePrivateMessage(from string, content string, history string) string
 }
 
-var privateHandler PrivateMessageHandler
-
-// SetPrivateHandler 设置私聊处理器
-func SetPrivateHandler(handler PrivateMessageHandler) {
-	privateHandler = handler
+// SetPrivateHandler 设置私聊处理器（实例方法）
+func (w *BaseWorker) SetPrivateHandler(handler PrivateMessageHandler) {
+	w.privateHandler = handler
 }
 
 // handlePrivateMessage 处理私聊消息
 func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
-	if privateHandler == nil {
+	if w.privateHandler == nil {
 		return nil
 	}
 
@@ -172,7 +172,7 @@ func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
 	history, _ := payload["history"].(string)
 
 	// 生成回复
-	reply := privateHandler.HandlePrivateMessage(from, content, history)
+	reply := w.privateHandler.HandlePrivateMessage(from, content, history)
 	if reply == "" {
 		return nil
 	}
@@ -191,8 +191,8 @@ func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
 func (w *BaseWorker) CallMCP(msg protocol.Message) (*protocol.Message, error) {
 	reqID := generateID()
 	req := protocol.Message{
-		Type: protocol.MsgMCPCall,
-		ID:   reqID,
+		Type:    protocol.MsgMCPCall,
+		ID:      reqID,
 		Payload: msg.Payload,
 	}
 

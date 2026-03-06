@@ -87,13 +87,13 @@ func main() {
 	mcpClient := staffutil.NewMCPClient(staff.BaseWorker.CallMCP)
 	meetingParticipant.MCPClient = mcpClient
 
-	worker.SetMeetingHandler(&TesterMeetingHandler{
+	staff.BaseWorker.SetMeetingHandler(&TesterMeetingHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})
 
 	// 设置私聊处理器
-	worker.SetPrivateHandler(&TesterPrivateHandler{
+	staff.BaseWorker.SetPrivateHandler(&TesterPrivateHandler{
 		Participant: meetingParticipant,
 		Name:        *name,
 	})

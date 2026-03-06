@@ -12,10 +12,10 @@ import (
 
 // Manager MCP 管理器
 type Manager struct {
-	config   *Config
-	servers  map[string]*ServerInstance
-	mu       sync.RWMutex
-	logger   func(string, ...interface{})
+	config  *Config
+	servers map[string]*ServerInstance
+	mu      sync.RWMutex
+	logger  func(string, ...interface{})
 }
 
 // NewManager 创建 MCP 管理器

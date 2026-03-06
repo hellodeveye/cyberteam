@@ -40,9 +40,9 @@ type Artifact struct {
 
 // StageArtifactNames 定义各阶段的标准产物文件名
 type StageArtifactNames struct {
-	Document   string   // 主文档文件名
-	CodeFiles  []string // 预期代码文件列表
-	MetaFile   string   // 元数据文件名
+	Document  string   // 主文档文件名
+	CodeFiles []string // 预期代码文件列表
+	MetaFile  string   // 元数据文件名
 }
 
 // StageArtifacts 各阶段的标准产物定义

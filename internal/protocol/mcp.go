@@ -2,11 +2,11 @@ package protocol
 
 // MCP 相关消息类型
 const (
-	MsgMCPCall   MessageType = "mcp_call"    // Staff 请求调用 MCP 工具
-	MsgMCPResult MessageType = "mcp_result"  // 返回调用结果
-	MsgMCPError  MessageType = "mcp_error"   // 调用错误
-	MsgMCPList   MessageType = "mcp_list"    // 获取可用工具列表
-	MsgMCPNotify MessageType = "mcp_notify"  // MCP Server 状态通知
+	MsgMCPCall   MessageType = "mcp_call"   // Staff 请求调用 MCP 工具
+	MsgMCPResult MessageType = "mcp_result" // 返回调用结果
+	MsgMCPError  MessageType = "mcp_error"  // 调用错误
+	MsgMCPList   MessageType = "mcp_list"   // 获取可用工具列表
+	MsgMCPNotify MessageType = "mcp_notify" // MCP Server 状态通知
 )
 
 // MCPCallRequest MCP 调用请求
@@ -43,6 +43,6 @@ type MCPToolInfo struct {
 // MCPNotify MCP 状态通知
 type MCPNotify struct {
 	Server  string `json:"server"`
-	Status  string `json:"status"`  // connected, disconnected, error
+	Status  string `json:"status"` // connected, disconnected, error
 	Message string `json:"message,omitempty"`
 }

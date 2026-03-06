@@ -26,7 +26,7 @@ func CreateDevWorkflow() *Workflow {
 					} else if str, ok := task.Output.(string); ok {
 						prdContent = str
 					}
-					
+
 					designTask := engine.CreateTask(project.ID, StageDesign,
 						fmt.Sprintf("设计: %s", project.Name),
 						"基于PRD进行系统设计",
@@ -34,7 +34,7 @@ func CreateDevWorkflow() *Workflow {
 							"prd":      prdContent,
 							"feedback": "",
 						})
-					
+
 					// 设计完成后需要评审（任务级回调）
 					designTask.OnComplete = func(t *Task) {
 						// 从设计任务输出中提取设计内容
@@ -48,7 +48,7 @@ func CreateDevWorkflow() *Workflow {
 						} else if str, ok := t.Output.(string); ok {
 							designContent = str
 						}
-						
+
 						engine.CreateTask(project.ID, StageReview,
 							fmt.Sprintf("评审设计: %s", project.Name),
 							"评审系统设计方案",
@@ -83,7 +83,7 @@ func CreateDevWorkflow() *Workflow {
 							designContent = design
 						}
 					}
-					
+
 					devTask := engine.CreateTask(project.ID, StageDevelop,
 						fmt.Sprintf("开发: %s", project.Name),
 						"根据设计文档进行开发",

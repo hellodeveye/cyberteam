@@ -19,13 +19,13 @@ type Participant interface {
 
 // DiscussionContext 讨论上下文
 type DiscussionContext struct {
-	MeetingID    string
-	Topic        string
-	History      []Message
-	LastMessage  *Message
-	Mentioned    bool // 是否被@
-	Mode         Mode
-	Transcript   string
+	MeetingID   string
+	Topic       string
+	History     []Message
+	LastMessage *Message
+	Mentioned   bool // 是否被@
+	Mode        Mode
+	Transcript  string
 }
 
 // StaffParticipant Staff 参与者实现
@@ -53,12 +53,12 @@ func (s *StaffParticipant) GetProfile() *profile.Profile {
 func (s *StaffParticipant) GenerateResponse(ctx *DiscussionContext) (string, error) {
 	// 构建 prompt
 	prompt := s.buildPrompt(ctx)
-	
+
 	systemPrompt := s.Profile.BuildSystemPrompt("discuss")
 	if systemPrompt == "" {
 		systemPrompt = s.buildDefaultSystemPrompt()
 	}
-	
+
 	resp, err := s.LLMClient.Complete([]llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
@@ -67,20 +67,20 @@ func (s *StaffParticipant) GenerateResponse(ctx *DiscussionContext) (string, err
 		Temperature: 0.7,
 		MaxTokens:   500,
 	})
-	
+
 	if err != nil {
 		return "", err
 	}
-	
+
 	return resp.Content, nil
 }
 
 func (s *StaffParticipant) buildPrompt(ctx *DiscussionContext) string {
 	var sb strings.Builder
-	
+
 	sb.WriteString(fmt.Sprintf("会议主题: %s\n\n", ctx.Topic))
 	sb.WriteString(fmt.Sprintf("讨论模式: %s\n", ctx.Mode))
-	
+
 	if ctx.Transcript != "" {
 		sb.WriteString("\n=== 之前的讨论 ===\n")
 		// 只保留最近 10 条消息
@@ -91,7 +91,7 @@ func (s *StaffParticipant) buildPrompt(ctx *DiscussionContext) string {
 		sb.WriteString(strings.Join(lines, "\n"))
 		sb.WriteString("\n===================\n\n")
 	}
-	
+
 	if ctx.LastMessage != nil {
 		if ctx.Mentioned {
 			sb.WriteString(fmt.Sprintf("你被 @%s 点名发言: %s\n\n", s.Name, ctx.LastMessage.From))
@@ -105,9 +105,9 @@ func (s *StaffParticipant) buildPrompt(ctx *DiscussionContext) string {
 			sb.WriteString("4. 如果没有新观点，可以简单说\"暂无疑问\"\n")
 		}
 	}
-	
+
 	sb.WriteString("\n请用第一人称发言，简短有力（50-200字）。")
-	
+
 	return sb.String()
 }
 
@@ -133,7 +133,7 @@ type Facilitator struct {
 // GenerateSummary 生成会议总结
 func (f *Facilitator) GenerateSummary(meeting *Meeting) (string, []string, error) {
 	transcript := meeting.GetTranscript()
-	
+
 	prompt := fmt.Sprintf(`请总结以下会议内容：
 
 主题: %s
@@ -156,21 +156,21 @@ func (f *Facilitator) GenerateSummary(meeting *Meeting) (string, []string, error
 		Temperature: 0.3,
 		MaxTokens:   1000,
 	})
-	
+
 	if err != nil {
 		return "", nil, err
 	}
-	
+
 	var result struct {
 		Summary     string   `json:"summary"`
 		ActionItems []string `json:"action_items"`
 	}
-	
+
 	if err := json.Unmarshal([]byte(resp.Content), &result); err != nil {
 		// 解析失败，返回原始内容作为总结
 		return resp.Content, []string{}, nil
 	}
-	
+
 	return result.Summary, result.ActionItems, nil
 }
 
@@ -180,7 +180,7 @@ func (f *Facilitator) DecideNextSpeaker(meeting *Meeting, lastSpeaker string) st
 	if len(participants) == 0 {
 		return ""
 	}
-	
+
 	// 找到上一个发言者的位置
 	idx := -1
 	for i, p := range participants {
@@ -189,7 +189,7 @@ func (f *Facilitator) DecideNextSpeaker(meeting *Meeting, lastSpeaker string) st
 			break
 		}
 	}
-	
+
 	// 下一个
 	nextIdx := (idx + 1) % len(participants)
 	return participants[nextIdx]

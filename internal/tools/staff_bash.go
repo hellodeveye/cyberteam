@@ -16,10 +16,10 @@ type StaffBashTool struct {
 // NewStaffBashTool 创建 Staff 专用的 Bash 工具
 func NewStaffBashTool(workspacesDir, projectName, projectID, stage string) *StaffBashTool {
 	// 构建工作目录: workspaces/ProjectName-ID/04-develop/
-	projectDir := filepath.Join(workspacesDir, 
+	projectDir := filepath.Join(workspacesDir,
 		sanitize(projectName)+"-"+projectID[:8],
 		stage)
-	
+
 	return &StaffBashTool{
 		bash:    NewBashTool(projectDir),
 		project: projectName,

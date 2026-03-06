@@ -37,8 +37,8 @@ type Session struct {
 
 // PrivateChat 私聊状态
 type PrivateChat struct {
-	With      string    // 对方名字
-	StartedAt time.Time // 开始时间
+	With      string        // 对方名字
+	StartedAt time.Time     // 开始时间
 	History   []ChatMessage // 聊天记录
 }
 
@@ -430,9 +430,9 @@ var builtinCommands = map[string]bool{
 	"team":    true,
 	"meeting": true, "mtg": true, "m": true,
 	"chat": true, "c": true,
-	"mcp":     true,
-	"help":    true, "h": true,
-	"exit":    true, "quit": true,
+	"mcp":  true,
+	"help": true, "h": true,
+	"exit": true, "quit": true,
 }
 
 // isBuiltinCommand 检查是否是内置命令
