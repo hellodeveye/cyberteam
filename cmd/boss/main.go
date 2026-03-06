@@ -195,22 +195,27 @@ func main() {
 		binary string
 		emoji  string
 	}{
-		{"product", "张产品", filepath.Join(rootDir, "cmd/staff/product/product"), "👩‍💼"},
-		{"developer", "李开发", filepath.Join(rootDir, "cmd/staff/developer/developer"), "👨‍💻"},
-		{"tester", "王测试", filepath.Join(rootDir, "cmd/staff/tester/tester"), "🧪"},
+		{"product", "Sarah", filepath.Join(rootDir, "cmd/staff/product/product"), "👩‍💼"},
+		{"developer", "Alex", filepath.Join(rootDir, "cmd/staff/developer/developer"), "👨‍💻"},
+		{"tester", "Mia", filepath.Join(rootDir, "cmd/staff/tester/tester"), "🧪"},
 	}
 
-	fmt.Println("\n👥 正在召集员工...")
+	fmt.Println("\n🎯 正在召集团队...")
+	descriptions := map[string]string{
+		"Sarah": "产品经理（咖啡成瘾，纸笔画图派）",
+		"Alex":  "架构师（代码洁癖，键盘收藏家）",
+		"Mia":   "测试专家（找茬天赋，清单强迫症）",
+	}
 	for _, s := range staffs {
 		if _, err := boss.HireStaff(s.role, s.name, s.binary); err != nil {
-			fmt.Printf("❌ %s %s 上班失败: %v\n", s.emoji, s.name, err)
+			fmt.Printf("❌ %s %s 打卡失败: %v\n", s.emoji, s.name, err)
 		} else {
-			fmt.Printf("   - %s %s (%s)\n", s.emoji, s.name, s.role)
+			fmt.Printf("   %s %s - %s\n", s.emoji, s.name, descriptions[s.name])
 			time.Sleep(200 * time.Millisecond)
 		}
 	}
 
-	fmt.Println("\n✅ 员工已到齐！")
+	fmt.Println("\n✅ 全员到齐，准备开工！")
 	time.Sleep(500 * time.Millisecond)
 
 	// 初始化会议室
@@ -418,7 +423,7 @@ func printHelp() {
 	fmt.Println("  meeting end                               结束会议")
 	fmt.Println()
 	fmt.Println("💡 提示: 进入会议后，直接输入内容即可发言")
-	fmt.Println("        @李开发 你的问题    - 点名指定人回答")
+	fmt.Println("        @Alex 你的问题    - 点名指定人回答")
 	fmt.Println("        大家好              - 自由发言（随机人回复）")
 	fmt.Println()
 }
@@ -1226,7 +1231,7 @@ func handleMeetingStart(session *Session, args []string) {
 	fmt.Printf("📌 模式: %s\n", mode)
 	fmt.Println("\n💡 直接输入发言，或 @某人 点名:")
 	fmt.Println("   大家好           - 自由发言")
-	fmt.Println("   @李开发 评估一下  - 点名提问")
+	fmt.Println("   @Alex 评估一下  - 点名提问")
 	fmt.Println("   meeting end      - 结束会议")
 }
 
@@ -1393,7 +1398,7 @@ func handleDirectMention(session *Session, line string) {
 	}
 
 	// 解析 @名字 内容
-	// 格式: @李开发 内容 或 @李开发 @张产品 内容
+	// 格式: @Alex 内容 或 @Alex @Sarah 内容
 	parts := strings.SplitN(line[1:], " ", 2) // 去掉开头的@
 	if len(parts) < 1 {
 		return
@@ -1559,14 +1564,23 @@ var roleColors = map[string]string{
 	"boss":      ColorPurple,  // Boss - 紫色
 }
 
-// 名字到角色的映射
+// 名字到角色的映射（支持中英文昵称）
 var nameToRole = map[string]string{
-	"张产品":  "product",
+	// Sarah - 产品经理
+	"Sarah":   "product",
+	"莎拉":    "product",
+	"张产品":  "product", // 兼容旧名
 	"产品":    "product",
-	"李开发":  "developer",
+	// Alex - 开发工程师
+	"Alex":    "developer",
+	"亚历克斯": "developer",
+	"李开发":  "developer", // 兼容旧名
 	"开发":    "developer",
 	"dev":     "developer",
-	"王测试":  "tester",
+	// Mia - 测试工程师
+	"Mia":     "tester",
+	"米娅":    "tester",
+	"王测试":  "tester", // 兼容旧名
 	"测试":    "tester",
 	"test":    "tester",
 }
