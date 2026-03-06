@@ -13,8 +13,8 @@ import (
 
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/registry"
-	"cyberteam/internal/workspace"
 	"cyberteam/internal/workflow"
+	"cyberteam/internal/workspace"
 )
 
 // Manager 项目经理
@@ -24,10 +24,14 @@ type Manager struct {
 	staffs      map[string]*StaffProcess
 	mu          sync.RWMutex
 	msgCallback func(staffID, msgType, content string)
-	
+
 	// 任务日志存储
 	taskLogs map[string][]LogEntry // taskID -> logs
 	logsMu   sync.RWMutex
+
+	// 心跳跟踪
+	lastHeartbeat map[string]time.Time // staffID -> 最后心跳时间
+	heartbeatMu   sync.RWMutex
 }
 
 // LogEntry 日志条目
@@ -49,13 +53,41 @@ type StaffProcess struct {
 // NewManager 创建项目经理
 func NewManager(engine *workflow.Engine) *Manager {
 	m := &Manager{
-		engine:   engine,
-		registry: registry.New(),
-		staffs:   make(map[string]*StaffProcess),
-		taskLogs: make(map[string][]LogEntry),
+		engine:        engine,
+		registry:      registry.New(),
+		staffs:        make(map[string]*StaffProcess),
+		taskLogs:      make(map[string][]LogEntry),
+		lastHeartbeat: make(map[string]time.Time),
 	}
 
+	// 启动心跳超时检测
+	go m.heartbeatChecker()
+
 	return m
+}
+
+// heartbeatChecker 定期检查员工心跳超时
+func (m *Manager) heartbeatChecker() {
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		m.heartbeatMu.RLock()
+		now := time.Now()
+		for staffID, lastTime := range m.lastHeartbeat {
+			if now.Sub(lastTime) > 90*time.Second {
+				// 超时，标记为离线
+				m.mu.Lock()
+				if proc, ok := m.staffs[staffID]; ok && proc.Profile != nil {
+					proc.Profile.Status = protocol.StatusOffline
+				}
+				m.mu.Unlock()
+				m.registry.UpdateStatus(staffID, protocol.StatusOffline, 0)
+				fmt.Fprintf(os.Stderr, "[Boss] 员工 %s 心跳超时，已标记为离线\n", staffID[:8])
+			}
+		}
+		m.heartbeatMu.RUnlock()
+	}
 }
 
 // AddTaskLog 添加任务日志
@@ -197,6 +229,10 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 			load = int(l)
 		}
 		m.registry.UpdateStatus(staffID, protocol.WorkerStatus(status), load)
+		// 更新最后心跳时间
+		m.heartbeatMu.Lock()
+		m.lastHeartbeat[staffID] = time.Now()
+		m.heartbeatMu.Unlock()
 
 	case protocol.MsgAccept:
 		m.mu.RLock()
@@ -661,14 +697,19 @@ func (m *Manager) ShowTeam() {
 
 // Shutdown 关闭所有员工
 func (m *Manager) Shutdown() {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.mu.Lock()
+	defer m.mu.Unlock()
 
 	for id, proc := range m.staffs {
-		msg := protocol.Message{Type: protocol.MsgShutdown, ID: generateID()}
+		msg := protocol.Message{Type: protocol.MsgShutdown, ID: protocol.GenerateID()}
 		data, _ := json.Marshal(msg)
 		fmt.Fprintln(proc.Stdin, string(data))
 		fmt.Printf("[Boss] 通知 %s 下班\n", id[:8])
+
+		// 等待进程退出
+		go func(cmd *exec.Cmd) {
+			cmd.Wait()
+		}(proc.Cmd)
 	}
 }
 
@@ -676,7 +717,7 @@ func (m *Manager) Shutdown() {
 func getRoleForStage(stage workflow.Stage) string {
 	mapping := map[workflow.Stage]string{
 		workflow.StageRequirement: "product",
-		workflow.StageDesign:      "developer",  // 系统设计由 Developer 处理
+		workflow.StageDesign:      "developer", // 系统设计由 Developer 处理
 		workflow.StageReview:      "product",
 		workflow.StageDevelop:     "developer",
 		workflow.StageTest:        "tester",
@@ -692,7 +733,7 @@ func getRoleForStage(stage workflow.Stage) string {
 func getCapabilityForStage(stage workflow.Stage) string {
 	mapping := map[workflow.Stage]string{
 		workflow.StageRequirement: "analyze_requirement",
-		workflow.StageDesign:      "design_system",     // 系统设计
+		workflow.StageDesign:      "design_system", // 系统设计
 		workflow.StageReview:      "design_review",
 		workflow.StageDevelop:     "implement_feature",
 		workflow.StageTest:        "execute_test",
@@ -717,5 +758,5 @@ func getRoleIcon(role string) string {
 }
 
 func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return protocol.GenerateID()
 }

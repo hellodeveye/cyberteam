@@ -54,6 +54,8 @@ func (w *BaseWorker) Run() error {
 
 	// 3. 主循环：监听任务
 	scanner := bufio.NewScanner(w.stdin)
+	// 增大 scanner 缓冲区到 10MB，支持大型消息
+	scanner.Buffer([]byte{}, 10*1024*1024)
 	for scanner.Scan() {
 		line := scanner.Bytes()
 		if len(line) == 0 {
@@ -62,6 +64,7 @@ func (w *BaseWorker) Run() error {
 
 		var msg protocol.Message
 		if err := json.Unmarshal(line, &msg); err != nil {
+			w.log("parse error: %v (line length: %d)", err, len(line))
 			continue
 		}
 
@@ -256,5 +259,5 @@ func (w *BaseWorker) reportFailed(taskID, reason string) error {
 }
 
 func generateID() string {
-	return fmt.Sprintf("%d", time.Now().UnixNano())
+	return protocol.GenerateID()
 }

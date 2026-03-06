@@ -1,6 +1,7 @@
 package workflow
 
 import (
+	"crypto/rand"
 	"fmt"
 	"sync"
 	"time"
@@ -33,18 +34,18 @@ const (
 
 // Task 工作流任务
 type Task struct {
-	ID          string
-	ProjectID   string
-	Name        string
-	Description string
-	Stage       Stage
-	Status      Status
-	Assignee    string      // 分配给谁的ID
-	Input       interface{} // 输入数据
-	Output      interface{} // 输出结果
-	Feedback    string      // 反馈/评审意见
-	ParentID    string      // 父任务ID（用于子任务）
-	WorkspaceDir string     // 工作空间目录（用于文件输出）
+	ID           string
+	ProjectID    string
+	Name         string
+	Description  string
+	Stage        Stage
+	Status       Status
+	Assignee     string      // 分配给谁的ID
+	Input        interface{} // 输入数据
+	Output       interface{} // 输出结果
+	Feedback     string      // 反馈/评审意见
+	ParentID     string      // 父任务ID（用于子任务）
+	WorkspaceDir string      // 工作空间目录（用于文件输出）
 
 	CreatedAt   time.Time
 	StartedAt   *time.Time
@@ -296,14 +297,17 @@ func (e *Engine) CompleteTask(taskID string, output interface{}) error {
 		}
 	}
 
-	// 保存回调和任务，在锁外执行
+	// 保存回调，在锁外执行
 	onComplete := task.OnComplete
+
+	// 复制任务数据避免竞态
+	taskCopy := *task
 
 	e.mu.Unlock()
 
 	// 执行完成回调（锁外）
 	if onComplete != nil {
-		go onComplete(task)
+		go onComplete(&taskCopy)
 	}
 
 	e.emit("task.completed", task)
@@ -327,9 +331,12 @@ func (e *Engine) RejectTask(taskID, feedback string) error {
 	task.Status = StatusRejected
 	task.Feedback = feedback
 
+	// 复制任务数据避免竞态
+	taskCopy := *task
+
 	// 执行驳回回调
 	if task.OnReject != nil {
-		go task.OnReject(task)
+		go task.OnReject(&taskCopy)
 	}
 
 	e.emit("task.rejected", task)
@@ -364,7 +371,7 @@ func (e *Engine) advanceWorkflow(taskID string) {
 	e.mu.RLock()
 	project := e.projects[projectID]
 	e.mu.RUnlock()
-	
+
 	if project == nil {
 		return
 	}
@@ -438,5 +445,13 @@ func generateID() string {
 	idMu.Lock()
 	defer idMu.Unlock()
 	idCounter++
-	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), idCounter)
+
+	// 使用 crypto/rand 生成更可靠的 ID
+	b := make([]byte, 8)
+	_, err := rand.Read(b)
+	if err != nil {
+		// 回退到时间戳+计数器
+		return fmt.Sprintf("%d-%d-%d", time.Now().UnixNano(), idCounter, time.Now().Nanosecond())
+	}
+	return fmt.Sprintf("%x-%d", b, idCounter)
 }

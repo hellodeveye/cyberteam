@@ -52,11 +52,11 @@ type ToolsConfig struct {
 
 // BashConfig Bash 工具配置
 type BashConfig struct {
-	Enabled  bool     `yaml:"enabled"`
-	Allow    []string `yaml:"allow,omitempty"`    // 允许的命令
-	Deny     []string `yaml:"deny,omitempty"`     // 禁止的命令
-	Timeout  string   `yaml:"timeout,omitempty"`  // 超时
-	MaxOutput int     `yaml:"max_output,omitempty"` // 最大输出
+	Enabled   bool     `yaml:"enabled"`
+	Allow     []string `yaml:"allow,omitempty"`      // 允许的命令
+	Deny      []string `yaml:"deny,omitempty"`       // 禁止的命令
+	Timeout   string   `yaml:"timeout,omitempty"`    // 超时
+	MaxOutput int      `yaml:"max_output,omitempty"` // 最大输出
 }
 
 // GitConfig Git 工具配置
@@ -100,8 +100,41 @@ func Load(path string) (*Profile, error) {
 		return nil, err
 	}
 
+	// 验证 Profile 合法性
+	if err := p.validate(); err != nil {
+		return nil, err
+	}
+
 	p.Body = body
 	return &p, nil
+}
+
+// validate 验证 Profile 配置
+func (p *Profile) validate() error {
+	if p.Name == "" {
+		return fmt.Errorf("profile name is required")
+	}
+	if p.Role == "" {
+		return fmt.Errorf("profile role is required")
+	}
+
+	// 检查 Allow 和 Deny 是否有重复命令
+	if p.Tools.Bash != nil && p.Tools.Bash.Enabled {
+		allowSet := make(map[string]bool)
+		for _, cmd := range p.Tools.Bash.Allow {
+			if allowSet[cmd] {
+				return fmt.Errorf("duplicate command in allow list: %s", cmd)
+			}
+			allowSet[cmd] = true
+		}
+		for _, cmd := range p.Tools.Bash.Deny {
+			if allowSet[cmd] {
+				return fmt.Errorf("command %s appears in both allow and deny lists", cmd)
+			}
+		}
+	}
+
+	return nil
 }
 
 // BuildSystemPrompt 构建 LLM system prompt

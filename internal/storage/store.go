@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"cyberteam/internal/workflow"
@@ -44,6 +45,7 @@ type TaskData struct {
 // Store 存储管理器
 type Store struct {
 	baseDir string
+	mu      sync.Mutex
 }
 
 // NewStore 创建存储管理器
@@ -190,14 +192,18 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 	// 监听事件自动保存
 	engine.On("project.created", func(data interface{}) {
 		project := data.(*workflow.Project)
-		s.SaveProject(project)
+		if err := s.SaveProject(project); err != nil {
+			fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
+		}
 	})
 
 	engine.On("task.created", func(data interface{}) {
 		task := data.(*workflow.Task)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
-			s.SaveProject(project)
+			if err := s.SaveProject(project); err != nil {
+				fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
+			}
 		}
 	})
 
@@ -205,7 +211,9 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 		task := data.(*workflow.Task)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
-			s.SaveProject(project)
+			if err := s.SaveProject(project); err != nil {
+				fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
+			}
 		}
 	})
 
@@ -213,7 +221,9 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 		task := data.(*workflow.Task)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
-			s.SaveProject(project)
+			if err := s.SaveProject(project); err != nil {
+				fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
+			}
 		}
 	})
 
@@ -221,7 +231,9 @@ func (s *Store) AutoSave(engine *workflow.Engine) {
 		task := data.(*workflow.Task)
 		project := engine.GetProject(task.ProjectID)
 		if project != nil {
-			s.SaveProject(project)
+			if err := s.SaveProject(project); err != nil {
+				fmt.Fprintf(os.Stderr, "[Storage] 保存项目失败: %v\n", err)
+			}
 		}
 	})
 }

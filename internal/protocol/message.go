@@ -1,9 +1,22 @@
 package protocol
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"time"
 )
+
+// GenerateID 生成唯一ID (UUID 风格)
+func GenerateID() string {
+	b := make([]byte, 16)
+	_, err := rand.Read(b)
+	if err != nil {
+		// 回退到时间戳
+		return fmt.Sprintf("%d-%d", time.Now().UnixNano(), time.Now().Nanosecond())
+	}
+	return fmt.Sprintf("%x-%x", b[:8], b[8:])
+}
 
 // MessageType 消息类型
 type MessageType string
@@ -84,12 +97,12 @@ const (
 // Task 任务定义
 type Task struct {
 	ID           string         `json:"id"`
-	Type         string         `json:"type"`               // 任务类型，匹配 Capability.Name
-	Title        string         `json:"title"`              // 标题
-	Description  string         `json:"description"`        // 详细描述
-	Inputs       map[string]any `json:"inputs"`             // 输入参数
-	Priority     int            `json:"priority"`           // 优先级 1-5
-	Deadline     *int64         `json:"deadline,omitempty"` // 截止时间戳
+	Type         string         `json:"type"`                    // 任务类型，匹配 Capability.Name
+	Title        string         `json:"title"`                   // 标题
+	Description  string         `json:"description"`             // 详细描述
+	Inputs       map[string]any `json:"inputs"`                  // 输入参数
+	Priority     int            `json:"priority"`                // 优先级 1-5
+	Deadline     *int64         `json:"deadline,omitempty"`      // 截止时间戳
 	WorkspaceDir string         `json:"workspace_dir,omitempty"` // 工作空间目录
 }
 
