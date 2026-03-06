@@ -1469,15 +1469,34 @@ func handleMeetingTranscript(session *Session) {
 func displayMeetingMessage(msg meeting.Message) {
 	timeStr := msg.Timestamp.Format("15:04:05")
 
+	// 获取发送者颜色
+	color := getSenderColor(msg.From)
+
 	switch msg.Type {
 	case meeting.MsgText:
-		fmt.Printf("[%s] **%s**: %s\n", timeStr, msg.From, msg.Content)
+		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, ColorReset, msg.Content)
 	case meeting.MsgMention:
-		fmt.Printf("[%s] **%s** -> %s: %s\n",
-			timeStr, msg.From, strings.Join(msg.MentionTo, ", "), msg.Content)
+		fmt.Printf("[%s] %s%s%s -> %s: %s\n",
+			timeStr, color, msg.From, ColorReset, strings.Join(msg.MentionTo, ", "), msg.Content)
 	case meeting.MsgAction:
 		fmt.Printf("[%s] *%s*\n", timeStr, msg.Content)
 	}
+}
+
+// getSenderColor 获取发送者的颜色
+func getSenderColor(from string) string {
+	role := ""
+	if r, ok := nameToRole[from]; ok {
+		role = r
+	}
+	// 特殊处理 boss
+	if from == "boss" {
+		role = "boss"
+	}
+	if c, ok := roleColors[role]; ok {
+		return c
+	}
+	return ColorWhite
 }
 
 // ANSI 颜色代码
@@ -1498,6 +1517,7 @@ var roleColors = map[string]string{
 	"product":   ColorGreen,   // 产品 - 绿色
 	"developer": ColorBlue,    // 开发 - 蓝色
 	"tester":    ColorYellow,  // 测试 - 黄色
+	"boss":      ColorPurple,  // Boss - 紫色
 }
 
 // 名字到角色的映射
@@ -1520,6 +1540,10 @@ func colorizeMeetingReply(content string) string {
 	role := ""
 	if r, ok := nameToRole[name]; ok {
 		role = r
+	}
+	// 特殊处理 boss
+	if name == "boss" {
+		role = "boss"
 	}
 
 	// 获取颜色
