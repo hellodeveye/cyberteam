@@ -301,23 +301,28 @@ func main() {
 	gMeetingRoom = meeting.NewRoom(meetingDir)
 	fmt.Println("✅ 会议室就绪！")
 
-	// 初始化 MCP 管理器
+	// 初始化 MCP 管理器（异步启动，避免阻塞）
 	mcpConfigPath := filepath.Join(rootDir, "config", "mcp.yaml")
 	mcpManager, err := mcp.NewManager(mcpConfigPath)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "⚠️ MCP 配置加载失败: %v\n", err)
 	} else {
 		boss.SetMCPManager(mcpManager)
-		if err := mcpManager.StartAll(); err != nil {
-			fmt.Fprintf(os.Stderr, "⚠️ MCP 启动失败: %v\n", err)
-		} else {
-			fmt.Println("✅ MCP 工具就绪！")
-			// 显示可用工具
-			for name, status := range mcpManager.GetServerStatus() {
-				fmt.Printf("   - %s: %s\n", name, status)
-			}
-		}
 		gMCPManager = mcpManager
+
+		// 异步启动 MCP Server，避免阻塞主线程
+		go func() {
+			fmt.Println("🚀 正在启动 MCP 工具...")
+			if err := mcpManager.StartAll(); err != nil {
+				fmt.Fprintf(os.Stderr, "⚠️ MCP 启动失败: %v\n", err)
+			} else {
+				fmt.Println("✅ MCP 工具就绪！")
+				// 显示可用工具
+				for name, status := range mcpManager.GetServerStatus() {
+					fmt.Printf("   - %s: %s\n", name, status)
+				}
+			}
+		}()
 	}
 
 	// 设置事件监听（需要在 boss 创建后）
