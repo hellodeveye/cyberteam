@@ -4,6 +4,7 @@
 
 ## 核心特性
 
+- **实时会议系统**：独立会议室，支持 @点名、上下文记忆、自动工具执行
 - **真实团队协作**：需求分析 → 设计 → 评审 → 开发 → 测试 → 部署
 - **声明式权限**：员工能力通过 PROFILE.md 声明，灵活可控
 - **安全工作区**：支持 Bash 工具执行，但有完整的安全限制
@@ -18,18 +19,18 @@
 ┌─────────────────────────────────────────────────────────────────────┐
 │                          Boss (项目经理)                             │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────────────────┐  │
-│  │  Workflow    │  │   Registry   │  │   Storage (Persistence)  │  │
-│  │   Engine     │  │   (Staffs)   │  │   workspaces/            │  │
+│  │  Workflow    │  │   Meeting    │  │   Storage (Persistence)  │  │
+│  │   Engine     │  │    Room      │  │   workspaces/            │  │
 │  └──────────────┘  └──────────────┘  └──────────────────────────┘  │
 └──────────────────┬──────────────────────────────────────────────────┘
-                   │ stdio (JSON Lines)
-       ┌───────────┼───────────────┐
-       ▼           ▼               ▼
-┌────────────┐ ┌──────────┐ ┌────────────┐
-│  张产品     │ │  李开发   │ │  王测试     │
-│ 产品经理    │ │ 开发工程师│ │ 测试工程师  │
-│ ├ PROFILE  │ │ ├ PROFILE│ │ ├ PROFILE  │
-│ └ tools:   │ │ └ tools: │ │ └ tools:   │
+                   │ stdio (JSON Lines)                │
+       ┌───────────┼───────────────┐                  │
+       ▼           ▼               ▼                  ▼
+┌────────────┐ ┌──────────┐ ┌────────────┐    ┌──────────────┐
+│  张产品     │ │  李开发   │ │  王测试     │    │   Meeting    │
+│ 产品经理    │ │ 开发工程师│ │ 测试工程师  │    │   Records    │
+│ ├ PROFILE  │ │ ├ PROFILE│ │ ├ PROFILE  │    │  meetings/   │
+│ └ tools:   │ │ └ tools: │ │ └ tools:   │    └──────────────┘
 │   bash:    │ │   bash:  │ │   bash:    │
 │   enabled  │ │   enabled│ │   enabled  │
 │   allow: []│ │   allow: │ │   allow:   │
@@ -88,6 +89,40 @@ go build -o cmd/staff/tester/tester ./cmd/staff/tester
 ```
 
 ## 使用指南
+
+### 独立会议系统
+
+随时召开团队会议，无需绑定项目：
+
+```bash
+🎤 > meeting start 需求评审        # 开始会议
+🎤 > meeting start 技术讨论 --mode free  # 指定模式
+
+# 直接发言（无需 say 命令）
+🎤 > 大家好
+🎤 > 这个需求大家怎么看？
+
+# @ 点名提问
+🎤 > @李开发 评估一下技术可行性
+🎤 > @张产品 @王测试 一起讨论下
+
+# 会议管理
+🎤 > meeting list                   # 列出所有会议
+🎤 > meeting join xxx               # 加入已有会议
+🎤 > meeting transcript             # 查看完整记录
+🎤 > meeting end                    # 结束并保存
+```
+
+**会议模式：**
+- `free` (默认) - 自由讨论，随机 1-2 人回复
+- `round` - 轮流发言
+- `boss` - Boss 主导
+
+**智能特性：**
+- **上下文记忆** - Staff 知道之前说了什么
+- **自动工具执行** - 问"磁盘空间够吗"自动执行 `df -h`
+- **彩色区分** - 不同角色不同颜色（产品绿/开发蓝/测试黄/Boss紫）
+- **右对齐时间** - 灰色时间戳，不干扰阅读
 
 ### 会话式交互（类似 tmux）
 
@@ -346,6 +381,9 @@ agent-cluster/
 │   │   └── message.go                # stdio 通信协议
 │   ├── master/
 │   │   └── manager.go                # Boss 核心逻辑
+│   ├── meeting/
+│   │   ├── room.go                   # 会议房间管理
+│   │   └── participant.go            # 会议参与者
 │   ├── worker/
 │   │   └── base.go                   # Staff 基础框架
 │   ├── workflow/
@@ -366,6 +404,10 @@ agent-cluster/
 │       ├── 02-design/
 │       ├── 04-develop/
 │       └── 05-test/
+├── meetings/                         # 会议记录
+│   └── mtg-1772776077421400012/
+│       ├── meeting.json              # 完整消息历史
+│       └── transcript.md             # 可读会议记录
 ├── docs/
 │   ├── bash-tool-design.md
 │   └── declarative-permissions.md
@@ -477,11 +519,13 @@ tools:
 
 ## 后续优化
 
+- [ ] **语音会议**：支持语音输入和 TTS 回复
 - [ ] **容器隔离**：在 Docker 容器中执行 Bash 命令
-- [ ] **Web UI**：可视化项目进度
+- [ ] **Web UI**：可视化项目进度和会议记录
 - [ ] **异构支持**：不同 Staff 用不同语言实现
 - [ ] **更多角色**：运维、设计师、数据分析师
 - [ ] **插件系统**：动态加载新能力
+- [ ] **会议摘要**：自动生成会议纪要和待办
 
 ## License
 
