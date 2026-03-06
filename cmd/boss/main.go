@@ -5,7 +5,6 @@ import (
 	"cyberteam/internal/storage"
 	"cyberteam/internal/workflow"
 	"cyberteam/internal/workspace"
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -14,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/chzyer/readline"
 )
 
 // 全局变量（简化命令处理）
@@ -197,57 +198,107 @@ func main() {
 		}
 	}()
 
-	// 交互式命令行
-	scanner := bufio.NewScanner(os.Stdin)
-	fmt.Print(session.GetPrompt())
+	// 交互式命令行（使用 readline 支持中文和 Ctrl+C）
+	rl, err := readline.New(session.GetPrompt())
+	if err != nil {
+		// 降级到标准输入（使用 bufio 简单回退）
+		fmt.Println("⚠️ 读取终端失败，使用标准输入模式")
+		fmt.Println("提示: 安装 readline 可获得更好的输入体验")
+		fmt.Print(session.GetPrompt())
 
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
+		// 简单标准输入回退
+		var input string
+		for {
+			if _, err := fmt.Scanln(&input); err != nil {
+				return
+			}
+			processInput(strings.TrimSpace(input), engine, boss, session)
+			fmt.Print(session.GetPrompt())
+		}
+	}
+	defer rl.Close()
+
+	// 设置 Ctrl+C 处理
+	var doubleCtrlC bool
+
+	for {
+		line, err := rl.Readline()
+
+		// 处理 Ctrl+C
+		if err == readline.ErrInterrupt {
+			if doubleCtrlC {
+				// 第二次 Ctrl+C，优雅退出
+				fmt.Println("\n👋 正在关闭公司...")
+				boss.Shutdown()
+				fmt.Println("再见！")
+				return
+			}
+			// 第一次 Ctrl+C，清空当前行
+			doubleCtrlC = true
+			fmt.Println("\n(输入已清空)")
+			fmt.Print(session.GetPrompt())
+			continue
+		}
+		doubleCtrlC = false // 重置标志
+
+		if err != nil {
+			// EOF 或其他错误，退出
+			if err.Error() == "EOF" {
+				fmt.Println("\n👋 再见！")
+			}
+			break
+		}
+
+		line = strings.TrimSpace(line)
 		if line == "" {
 			fmt.Print(session.GetPrompt())
 			continue
 		}
 
-		parts := strings.SplitN(line, " ", 3)
-		cmd := parts[0]
-
-		switch cmd {
-		case "new":
-			handleNew(engine, boss, session, parts)
-		case "projects", "ls":
-			handleProjects(engine, session)
-		case "project", "cd":
-			handleProject(engine, session, parts)
-		case "..":
-			handleExitProject(session)
-		case "status", "st":
-			handleStatus(engine, session)
-		case "tasks":
-			handleTasks(engine, session)
-		case "watch":
-			handleWatch(engine, session, parts)
-		case "artifacts", "art":
-			handleArtifacts(engine, session, gWsManager)
-		case "show", "cat":
-			handleShow(engine, session, parts)
-		case "approve", "ok":
-			handleApprove(engine, session, parts)
-		case "reject", "no":
-			handleReject(engine, session, parts)
-		case "team":
-			boss.ShowTeam()
-		case "help", "h":
-			printHelp()
-		case "exit", "quit":
-			fmt.Println("\n👋 正在关闭公司...")
-			boss.Shutdown()
-			fmt.Println("再见！")
-			return
-		default:
-			fmt.Println("未知命令，输入 'help' 查看帮助")
-		}
-
+		processInput(line, engine, boss, session)
 		fmt.Print(session.GetPrompt())
+	}
+}
+
+// processInput 处理用户输入
+func processInput(line string, engine *workflow.Engine, boss *master.Manager, session *Session) {
+	parts := strings.SplitN(line, " ", 3)
+	cmd := parts[0]
+
+	switch cmd {
+	case "new":
+		handleNew(engine, boss, session, parts)
+	case "projects", "ls":
+		handleProjects(engine, session)
+	case "project", "cd":
+		handleProject(engine, session, parts)
+	case "..":
+		handleExitProject(session)
+	case "status", "st":
+		handleStatus(engine, session)
+	case "tasks":
+		handleTasks(engine, session)
+	case "watch":
+		handleWatch(engine, session, parts)
+	case "artifacts", "art":
+		handleArtifacts(engine, session, gWsManager)
+	case "show", "cat":
+		handleShow(engine, session, parts)
+	case "approve", "ok":
+		handleApprove(engine, session, parts)
+	case "reject", "no":
+		handleReject(engine, session, parts)
+	case "team":
+		boss.ShowTeam()
+	case "help", "h":
+		printHelp()
+	case "exit", "quit":
+		fmt.Println("\n👋 正在关闭公司...")
+		boss.Shutdown()
+		fmt.Println("再见！")
+		os.Exit(0)
+	default:
+		fmt.Println("未知命令，输入 'help' 查看帮助")
 	}
 }
 
@@ -649,14 +700,14 @@ func handleShow(engine *workflow.Engine, session *Session, parts []string) {
 
 	// 映射常用名称到阶段
 	stageMap := map[string]int{
-		"prd":        1,
+		"prd":         1,
 		"requirement": 1,
-		"design":     2,
-		"review":     3,
-		"code":       4,
-		"develop":    4,
-		"test":       5,
-		"deploy":     6,
+		"design":      2,
+		"review":      3,
+		"code":        4,
+		"develop":     4,
+		"test":        5,
+		"deploy":      6,
 	}
 
 	// 如果名称是阶段名，显示该阶段的主文档
@@ -821,7 +872,7 @@ func setupEventListeners(engine *workflow.Engine, mq *MessageQueue, session *Ses
 	engine.On("task.created", func(data interface{}) {
 		task := data.(*workflow.Task)
 		mq.Push(fmt.Sprintf("📋 新任务: [%s] %s", getStageName(task.Stage), task.Name))
-		
+
 		// 自动分配任务
 		if boss != nil && task.Assignee == "" {
 			go func(t *workflow.Task) {
