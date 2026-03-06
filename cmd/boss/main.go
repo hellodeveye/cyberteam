@@ -1564,25 +1564,11 @@ var roleColors = map[string]string{
 	"boss":      ColorPurple,  // Boss - 紫色
 }
 
-// 名字到角色的映射（支持中英文昵称）
+// 名字到角色的映射
 var nameToRole = map[string]string{
-	// Sarah - 产品经理
-	"Sarah":   "product",
-	"莎拉":    "product",
-	"张产品":  "product", // 兼容旧名
-	"产品":    "product",
-	// Alex - 开发工程师
-	"Alex":    "developer",
-	"亚历克斯": "developer",
-	"李开发":  "developer", // 兼容旧名
-	"开发":    "developer",
-	"dev":     "developer",
-	// Mia - 测试工程师
-	"Mia":     "tester",
-	"米娅":    "tester",
-	"王测试":  "tester", // 兼容旧名
-	"测试":    "tester",
-	"test":    "tester",
+	"Sarah": "product",
+	"Alex":  "developer",
+	"Mia":   "tester",
 }
 
 // colorizeMeetingReply 给会议回复添加颜色
