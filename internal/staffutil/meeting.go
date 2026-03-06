@@ -5,6 +5,7 @@ import (
 	"cyberteam/internal/profile"
 	"cyberteam/internal/tools"
 	"fmt"
+	"os"
 	"regexp"
 	"strings"
 )
@@ -124,14 +125,17 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 
 // AutoExecuteTool 自动检测并执行工具
 func (p *MeetingParticipant) AutoExecuteTool(question string, workDir string) (string, bool) {
-	// 创建 bash 工具
-	bashTool := tools.NewBashTool(workDir)
-
 	// 检测需要执行什么命令
 	cmd := p.detectCommand(question)
 	if cmd == "" {
 		return "", false
 	}
+
+	// 调试日志
+	fmt.Fprintf(os.Stderr, "[DEBUG] 检测到命令: %s (问题: %s)\n", cmd, question)
+
+	// 创建 bash 工具
+	bashTool := tools.NewBashTool(workDir)
 
 	// 执行命令
 	result := bashTool.Execute(cmd)
@@ -191,7 +195,7 @@ func (p *MeetingParticipant) detectCommand(question string) string {
 	}
 
 	// 匹配进程查询
-	if matched, _ := regexp.MatchString(`(进程|process|ps|运行中)`, q); matched {
+	if matched, _ := regexp.MatchString(`(进程|process|\bps\b|运行中)`, q); matched {
 		return "ps aux | head -10"
 	}
 
