@@ -4,6 +4,7 @@ import (
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/tools"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -32,20 +33,6 @@ func NewMeetingParticipant(role, name string, profile *profile.Profile, llmClien
 
 // GenerateReply 生成会议回复（支持自动工具执行）
 func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, content string, mentioned bool) string {
-	// 先尝试使用 MCP 工具（如果可用）
-	if p.MCPClient != nil && mentioned {
-		if toolResult, executed := p.tryMCPCall(content); executed {
-			return p.buildToolReply(content, toolResult)
-		}
-	}
-
-	// 回退到本地 bash 工具
-	if mentioned && (p.Role == "developer" || p.Role == "tester") {
-		if toolResult, executed := p.AutoExecuteTool(content, "/tmp"); executed {
-			return p.buildToolReply(content, toolResult)
-		}
-	}
-
 	// 构建系统提示
 	systemPrompt := p.buildSystemPrompt()
 
@@ -59,14 +46,52 @@ func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, c
 	}, &llm.CompleteOptions{
 		Model:       p.Model,
 		Temperature: 0.7,
-		MaxTokens:   300,
+		MaxTokens:   500,
 	})
 
 	if err != nil {
 		return p.fallbackReply(mentioned)
 	}
 
-	return resp.Content
+	reply := resp.Content
+
+	// 检查是否需要调用 MCP 工具
+	if p.MCPClient != nil && mentioned {
+		if toolName, args, ok := parseToolCall(reply); ok {
+			result, err := p.MCPClient.CallTool(toolName, args)
+			if err == nil && result != "" {
+				// 将工具结果附加到回复中
+				return fmt.Sprintf("%s\n\n[工具查询结果]\n%s", reply, result)
+			}
+		}
+	}
+
+	// 回退到本地 bash 工具
+	if mentioned && (p.Role == "developer" || p.Role == "tester") {
+		if toolResult, executed := p.AutoExecuteTool(content, "/tmp"); executed {
+			return p.buildToolReply(content, toolResult)
+		}
+	}
+
+	return reply
+}
+
+// parseToolCall 解析 LLM 回复中的工具调用
+// 格式: [TOOL:server:tool]{json_args}
+func parseToolCall(reply string) (string, map[string]interface{}, bool) {
+	re := regexp.MustCompile(`\[TOOL:([^\]]+)\]\s*(\{[^\}]+\})`)
+	matches := re.FindStringSubmatch(reply)
+	if len(matches) < 3 {
+		return "", nil, false
+	}
+
+	toolName := matches[1]
+	var args map[string]interface{}
+	if err := json.Unmarshal([]byte(matches[2]), &args); err != nil {
+		return "", nil, false
+	}
+
+	return toolName, args, true
 }
 
 // buildToolReply 构建带工具结果的回复
@@ -75,6 +100,11 @@ func (p *MeetingParticipant) buildToolReply(question, toolResult string) string 
 }
 
 func (p *MeetingParticipant) buildSystemPrompt() string {
+	toolsInfo := ""
+	if p.MCPClient != nil {
+		toolsInfo = p.MCPClient.GetToolsPrompt()
+	}
+
 	return fmt.Sprintf(`你是%s，%s。
 
 团队成员：
@@ -83,6 +113,8 @@ func (p *MeetingParticipant) buildSystemPrompt() string {
 - Alex：开发工程师
 - Mia：测试工程师
 
+%s
+
 你现在正在团队会议中，保持放松的状态，像平时聊天一样自然交流。
 
 **交流风格：**
@@ -90,7 +122,7 @@ func (p *MeetingParticipant) buildSystemPrompt() string {
 - 简短有力，像日常对话
 - 根据对方身份调整语气（对Boss尊重但不必拘谨，对同事随意）
 
-回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description)
+回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description, toolsInfo)
 }
 
 func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content string, mentioned bool) string {

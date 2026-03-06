@@ -3,6 +3,7 @@ package staffutil
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"cyberteam/internal/protocol"
@@ -23,7 +24,7 @@ func NewMCPClient(requestFunc func(msg protocol.Message) (*protocol.Message, err
 func (c *MCPClient) CallTool(tool string, args map[string]interface{}) (string, error) {
 	req := protocol.Message{
 		Type: protocol.MsgMCPCall,
-		ID:   generateMCPID(),
+		ID:   fmt.Sprintf("mcp-%d", time.Now().UnixNano()),
 		Payload: map[string]interface{}{
 			"tool": tool,
 			"args": args,
@@ -48,7 +49,7 @@ func (c *MCPClient) CallTool(tool string, args map[string]interface{}) (string, 
 func (c *MCPClient) ListTools() ([]protocol.MCPToolInfo, error) {
 	req := protocol.Message{
 		Type: protocol.MsgMCPList,
-		ID:   generateMCPID(),
+		ID:   fmt.Sprintf("mcp-%d", time.Now().UnixNano()),
 		Payload: map[string]interface{}{
 			"role": "", // Boss 会根据 Staff 角色自动判断
 		},
@@ -73,7 +74,22 @@ func (c *MCPClient) ListTools() ([]protocol.MCPToolInfo, error) {
 	return tools, nil
 }
 
-// generateMCPID 生成简单 ID
-func generateMCPID() string {
-	return fmt.Sprintf("mcp-%d", time.Now().UnixNano())
+// GetToolsPrompt 获取工具提示（用于 System Prompt）
+func (c *MCPClient) GetToolsPrompt() string {
+	tools, err := c.ListTools()
+	if err != nil || len(tools) == 0 {
+		return ""
+	}
+
+	var lines []string
+	lines = append(lines, "**可用工具：**")
+	for _, t := range tools {
+		lines = append(lines, fmt.Sprintf("- %s: %s", t.Name, t.Description))
+	}
+	lines = append(lines, "")
+	lines = append(lines, "**使用工具：**")
+	lines = append(lines, "当你需要外部数据时，可以调用工具。在回复中用 [TOOL:tool_name]json_args 格式")
+	lines = append(lines, `例如：[TOOL:fetch:fetch_url]{"url":"https://example.com"}`)
+
+	return strings.Join(lines, "\n")
 }

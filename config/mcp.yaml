@@ -10,7 +10,7 @@ settings:
 # MCP Server 定义
 servers:
   github:
-    enabled: true
+    enabled: false
     description: "GitHub 代码仓库查询"
     command: "npx -y @modelcontextprotocol/server-github"
     env:
