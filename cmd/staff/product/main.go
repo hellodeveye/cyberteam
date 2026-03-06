@@ -52,6 +52,8 @@ func main() {
 			Responses: []string{
 				"好的，这是一个优秀的功能需求。我建议采用模块化设计，用户界面要简洁直观。",
 				"经过分析，这个功能的核心价值在于提升用户体验，建议优先级定为 P1。",
+				"从用户角度看，这个功能能解决痛点，建议尽快落地。",
+				"需求很清晰，我这边没有疑问，可以进入设计阶段。",
 			},
 		}
 		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 DEEPSEEK_API_KEY 启用真实 LLM）\n", *name)
@@ -85,6 +87,13 @@ func main() {
 		profile:   prof,
 	}
 	staff.BaseWorker = worker.NewBaseWorker(profileData, staff)
+
+	// 设置会议处理器（方案二）
+	meetingParticipant := staffutil.NewMeetingParticipant("product", *name, prof, llmClient, *model)
+	worker.SetMeetingHandler(&ProductMeetingHandler{
+		Participant: meetingParticipant,
+		Name:        *name,
+	})
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Product staff error: %v\n", err)
@@ -365,4 +374,15 @@ func convertParams(params []profile.Param) []protocol.Param {
 		}
 	}
 	return result
+}
+
+// ProductMeetingHandler Product 会议处理器
+type ProductMeetingHandler struct {
+	Participant *staffutil.MeetingParticipant
+	Name        string
+}
+
+// HandleMeetingMessage 处理会议消息
+func (h *ProductMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
+	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
 }

@@ -25,6 +25,16 @@ const (
 	// 查询
 	MsgQueryCap    MessageType = "query_capability" // 查询能力
 	MsgListWorkers MessageType = "list_workers"     // 列出员工
+
+	// 会议相关 (方案二)
+	MsgMeetingJoin  MessageType = "meeting_join"  // 加入会议
+	MsgMeetingLeave MessageType = "meeting_leave" // 离开会议
+	MsgMeetingMsg   MessageType = "meeting_msg"   // 会议消息
+	MsgMeetingReply MessageType = "meeting_reply" // 会议回复
+
+	// 工具执行
+	MsgToolExec   MessageType = "tool_exec"   // 执行工具
+	MsgToolResult MessageType = "tool_result" // 工具执行结果
 )
 
 // Message 基础消息结构

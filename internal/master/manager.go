@@ -230,7 +230,135 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 
 	case protocol.MsgFailed:
 		m.handleTaskFailed(staffID, msg.TaskID, msg.Payload)
+
+	case protocol.MsgMeetingReply:
+		// Staff 的会议回复
+		meetingID, _ := msg.Payload["meeting_id"].(string)
+		content, _ := msg.Payload["content"].(string)
+		m.mu.RLock()
+		proc := m.staffs[staffID]
+		m.mu.RUnlock()
+		if proc != nil && proc.Profile != nil {
+			if m.msgCallback != nil {
+				m.msgCallback(staffID, "meeting_reply", fmt.Sprintf("[%s] **%s**: %s", meetingID, proc.Profile.Name, content))
+			}
+		}
 	}
+}
+
+// SendMeetingMessage 发送会议消息给 Staff（Boss 主动调用）
+func (m *Manager) SendMeetingMessage(staffRole string, meetingID string, from string, content string, mentioned bool, transcript string) error {
+	m.mu.RLock()
+	var targetStaff *StaffProcess
+	for _, proc := range m.staffs {
+		if proc.Profile != nil && proc.Profile.Role == staffRole {
+			targetStaff = proc
+			break
+		}
+	}
+	m.mu.RUnlock()
+
+	if targetStaff == nil {
+		return fmt.Errorf("staff with role %s not found", staffRole)
+	}
+
+	msg := protocol.Message{
+		Type: protocol.MsgMeetingMsg,
+		ID:   generateID(),
+		Payload: map[string]any{
+			"meeting_id": meetingID,
+			"from":       from,
+			"content":    content,
+			"mentioned":  mentioned,
+			"transcript": transcript, // 传递会议历史
+		},
+	}
+
+	data, err := json.Marshal(msg)
+	if err != nil {
+		return err
+	}
+
+	_, err = targetStaff.Stdin.Write(append(data, '\n'))
+	return err
+}
+
+// BroadcastMeetingMessage 广播会议消息给所有 Staff
+func (m *Manager) BroadcastMeetingMessage(meetingID string, from string, content string) error {
+	m.mu.RLock()
+	staffs := make([]*StaffProcess, 0, len(m.staffs))
+	for _, proc := range m.staffs {
+		staffs = append(staffs, proc)
+	}
+	m.mu.RUnlock()
+
+	for _, proc := range staffs {
+		if proc.Profile != nil && proc.Profile.Role != "boss" {
+			go func(p *StaffProcess) {
+				msg := protocol.Message{
+					Type: protocol.MsgMeetingMsg,
+					ID:   generateID(),
+					Payload: map[string]any{
+						"meeting_id": meetingID,
+						"from":       from,
+						"content":    content,
+						"mentioned":  false,
+					},
+				}
+				data, _ := json.Marshal(msg)
+				p.Stdin.Write(append(data, '\n'))
+			}(proc)
+		}
+	}
+	return nil
+}
+
+// BroadcastMeetingMessageRandom 随机选择 N 个 Staff 发送会议消息
+func (m *Manager) BroadcastMeetingMessageRandom(meetingID string, from string, content string, maxCount int, transcript string) error {
+	m.mu.RLock()
+	staffs := make([]*StaffProcess, 0, len(m.staffs))
+	for _, proc := range m.staffs {
+		if proc.Profile != nil && proc.Profile.Role != "boss" {
+			staffs = append(staffs, proc)
+		}
+	}
+	m.mu.RUnlock()
+
+	if len(staffs) == 0 {
+		return nil
+	}
+
+	// 随机选择最多 maxCount 个
+	selected := staffs
+	if len(staffs) > maxCount {
+		// 简单随机：打乱顺序后取前 N 个
+		for i := len(staffs) - 1; i > 0; i-- {
+			j := time.Now().UnixNano() % int64(i+1)
+			staffs[i], staffs[j] = staffs[j], staffs[i]
+		}
+		selected = staffs[:maxCount]
+	}
+
+	for _, proc := range selected {
+		go func(p *StaffProcess) {
+			// 添加小延迟，模拟真实讨论的节奏感
+			time.Sleep(time.Duration(time.Now().UnixNano()%3000+1000) * time.Millisecond)
+			msg := protocol.Message{
+				Type: protocol.MsgMeetingMsg,
+				ID:   generateID(),
+				Payload: map[string]any{
+					"meeting_id": meetingID,
+					"from":       from,
+					"content":    content,
+					"mentioned":  false,
+					"transcript": transcript, // 传递会议历史
+				},
+			}
+			data, _ := json.Marshal(msg)
+			p.Stdin.Write(append(data, '\n'))
+		}(proc)
+	}
+	return nil
 }
 
 // handleTaskComplete 处理任务完成

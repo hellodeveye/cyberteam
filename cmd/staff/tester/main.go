@@ -53,6 +53,8 @@ func main() {
 			Responses: []string{
 				`{"test_cases": [{"id": "TC-001", "title": "登录成功", "priority": "P0"}], "coverage": "90%"}`,
 				`{"report": {"total": 10, "passed": 9, "failed": 1}, "bugs": [{"id": "BUG-001", "severity": "high", "desc": "边界值错误"}]}`,
+				"测试角度没问题，边界条件需要考虑异常流程。",
+				"建议补充自动化测试用例，确保回归覆盖。",
 			},
 		}
 		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 DEEPSEEK_API_KEY 启用真实 LLM）\n", *name)
@@ -86,6 +88,13 @@ func main() {
 		profile:   prof,
 	}
 	staff.BaseWorker = worker.NewBaseWorker(profileData, staff)
+
+	// 设置会议处理器（方案二）
+	meetingParticipant := staffutil.NewMeetingParticipant("tester", *name, prof, llmClient, *model)
+	worker.SetMeetingHandler(&TesterMeetingHandler{
+		Participant: meetingParticipant,
+		Name:        *name,
+	})
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Tester staff error: %v\n", err)
@@ -488,4 +497,15 @@ func convertParams(params []profile.Param) []protocol.Param {
 		}
 	}
 	return result
+}
+
+// TesterMeetingHandler Tester 会议处理器
+type TesterMeetingHandler struct {
+	Participant *staffutil.MeetingParticipant
+	Name        string
+}
+
+// HandleMeetingMessage 处理会议消息
+func (h *TesterMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
+	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"cyberteam/internal/master"
+	"cyberteam/internal/meeting"
 	"cyberteam/internal/storage"
 	"cyberteam/internal/workflow"
 	"cyberteam/internal/workspace"
@@ -20,11 +21,13 @@ import (
 // 全局变量（简化命令处理）
 var gWsManager *workspace.Manager
 var gBoss *master.Manager
+var gMeetingRoom *meeting.Room
 
 // Session 当前会话状态
 type Session struct {
 	mu             sync.RWMutex
 	currentProject *workflow.Project
+	currentMeeting *meeting.Meeting
 }
 
 func NewSession() *Session {
@@ -43,9 +46,24 @@ func (s *Session) GetProject() *workflow.Project {
 	return s.currentProject
 }
 
+func (s *Session) SetMeeting(m *meeting.Meeting) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.currentMeeting = m
+}
+
+func (s *Session) GetMeeting() *meeting.Meeting {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.currentMeeting
+}
+
 func (s *Session) GetPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.currentMeeting != nil {
+		return fmt.Sprintf("🎤 [🗣️ %s] > ", s.currentMeeting.Topic)
+	}
 	if s.currentProject == nil {
 		return "🎤 > "
 	}
@@ -150,7 +168,14 @@ func main() {
 
 	// 设置 Staff 消息回调
 	boss.SetMessageCallback(func(staffID, msgType, content string) {
-		msgQueue.Push(fmt.Sprintf("[%s] %s", staffID[:8], content))
+		if msgType == "meeting_reply" {
+			// 会议回复直接显示（Staff 的发言），去掉会议ID前缀
+			// 格式: [meetingID] **Name**: content -> [**Name**]: content
+			cleanContent := cleanMeetingReply(content)
+			msgQueue.Push(cleanContent)
+		} else {
+			msgQueue.Push(fmt.Sprintf("[%s] %s", staffID[:8], content))
+		}
 	})
 
 	// 招聘员工
@@ -175,6 +200,11 @@ func main() {
 
 	fmt.Println("\n✅ 团队组建完成！")
 	time.Sleep(500 * time.Millisecond)
+
+	// 初始化会议室
+	meetingDir := filepath.Join(rootDir, "meetings")
+	gMeetingRoom = meeting.NewRoom(meetingDir)
+	fmt.Println("✅ 会议室就绪！")
 
 	// 设置事件监听（需要在 boss 创建后）
 	setupEventListeners(engine, msgQueue, session, wsManager, boss)
@@ -290,6 +320,12 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 		handleReject(engine, session, parts)
 	case "team":
 		boss.ShowTeam()
+	case "meeting", "mtg", "m":
+		handleMeeting(session, parts)
+	case "say":
+		handleMeetingSay(session, parts[1:])
+	case "ask":
+		handleMeetingAsk(session, parts[1:])
 	case "help", "h":
 		printHelp()
 	case "exit", "quit":
@@ -318,10 +354,17 @@ func printHelp() {
 	fmt.Println("  approve <ID>, ok <ID>  批准任务")
 	fmt.Println("  reject <ID> <原因>     驳回任务")
 	fmt.Println("  team                   查看团队状态")
-	fmt.Println("  help                   显示帮助")
-	fmt.Println("  exit                   退出")
+	fmt.Println()
+	fmt.Println("🗣️ 会议命令:")
+	fmt.Println("  meeting start <主题> [--mode free|round]  开始会议")
+	fmt.Println("  meeting list                              列出会议")
+	fmt.Println("  meeting join <ID>                         加入会议")
+	fmt.Println("  say <内容>                                发言")
+	fmt.Println("  ask <人> <问题>                           点名提问")
+	fmt.Println("  meeting end                               结束会议")
 	fmt.Println()
 	fmt.Println("💡 提示: 先用 'project <ID>' 进入项目，然后直接操作")
+	fmt.Println("        或用 'meeting start' 开独立会议")
 	fmt.Println()
 }
 
@@ -1045,4 +1088,312 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen-3] + "..."
+}
+
+// ==================== Meeting Commands ====================
+
+func handleMeeting(session *Session, parts []string) {
+	if len(parts) < 2 {
+		fmt.Println("❌ 用法: meeting <start|list|join|say|ask|end|transcript>")
+		return
+	}
+
+	subCmd := parts[1]
+	args := parts[2:]
+
+	switch subCmd {
+	case "start":
+		handleMeetingStart(session, args)
+	case "list", "ls":
+		handleMeetingList()
+	case "join":
+		handleMeetingJoin(session, args)
+	case "end":
+		handleMeetingEnd(session)
+	case "transcript", "log":
+		handleMeetingTranscript(session)
+	default:
+		fmt.Printf("❌ 未知会议命令: %s\n", subCmd)
+	}
+}
+
+func handleMeetingStart(session *Session, args []string) {
+	if len(args) < 1 {
+		fmt.Println("❌ 用法: meeting start <topic> [--with staff1,staff2] [--mode free|round|boss]")
+		return
+	}
+
+	topic := args[0]
+	mode := meeting.ModeFree
+	participants := []string{"product", "developer", "tester"}
+
+	// 解析参数
+	for i := 1; i < len(args); i++ {
+		switch args[i] {
+		case "--with":
+			if i+1 < len(args) {
+				participants = strings.Split(args[i+1], ",")
+				i++
+			}
+		case "--mode":
+			if i+1 < len(args) {
+				mode = meeting.Mode(args[i+1])
+				i++
+			}
+		}
+	}
+
+	// 创建会议
+	mtg, err := gMeetingRoom.CreateMeeting(topic, mode, participants, "boss")
+	if err != nil {
+		fmt.Printf("❌ 创建会议失败: %v\n", err)
+		return
+	}
+
+	// 进入会议模式
+	session.SetMeeting(mtg)
+
+	// 注册消息回调（流式显示）
+	gMeetingRoom.OnMessage(func(meetingID string, msg meeting.Message) {
+		if meetingID != mtg.ID {
+			return
+		}
+		displayMeetingMessage(msg)
+	})
+
+	fmt.Printf("\n🎤 会议 [%s] 开始\n", mtg.Topic)
+	fmt.Printf("📋 ID: %s\n", mtg.ID)
+	fmt.Printf("👥 参与者: %s\n", strings.Join(participants, ", "))
+	fmt.Printf("📌 模式: %s\n", mode)
+	fmt.Println("\n💡 提示:")
+	fmt.Println("   say <内容>    - 发言")
+	fmt.Println("   ask <人> <问题> - 点名提问")
+	fmt.Println("   meeting end   - 结束会议")
+}
+
+func handleMeetingList() {
+	meetings := gMeetingRoom.ListMeetings()
+
+	if len(meetings) == 0 {
+		fmt.Println("📭 暂无会议")
+		return
+	}
+
+	fmt.Println("\n📋 会议列表")
+	fmt.Println(strings.Repeat("-", 80))
+	for _, m := range meetings {
+		status := "🟢"
+		if m.Status == meeting.StatusCompleted {
+			status = "✅"
+		}
+		fmt.Printf("%s [%s] %s | 模式: %s | 消息: %d条 | %s\n",
+			status, m.ID[:12], m.Topic, m.Mode, len(m.Messages), m.Status)
+	}
+	fmt.Println()
+}
+
+func handleMeetingJoin(session *Session, args []string) {
+	if len(args) < 1 {
+		fmt.Println("❌ 用法: meeting join <id>")
+		return
+	}
+
+	id := args[0]
+	mtg, ok := gMeetingRoom.GetMeeting(id)
+	if !ok {
+		// 尝试前缀匹配
+		meetings := gMeetingRoom.ListMeetings()
+		for _, m := range meetings {
+			if strings.HasPrefix(m.ID, id) {
+				mtg = m
+				ok = true
+				break
+			}
+		}
+	}
+	if !ok {
+		fmt.Printf("❌ 会议不存在: %s\n", id)
+		return
+	}
+
+	session.SetMeeting(mtg)
+
+	fmt.Printf("\n🎤 已进入会议 [%s]\n", mtg.Topic)
+	fmt.Printf("📋 状态: %s | 消息: %d条\n", mtg.Status, len(mtg.Messages))
+
+	if len(mtg.Messages) > 0 {
+		fmt.Println("\n📜 最近消息:")
+		start := len(mtg.Messages) - 5
+		if start < 0 {
+			start = 0
+		}
+		for _, msg := range mtg.Messages[start:] {
+			displayMeetingMessage(msg)
+		}
+	}
+}
+
+func handleMeetingSay(session *Session, args []string) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		fmt.Println("❌ 当前不在会议中，使用 'meeting start <topic>' 开始")
+		return
+	}
+
+	content := strings.Join(args, " ")
+	if content == "" {
+		fmt.Println("❌ 发言内容不能为空")
+		return
+	}
+
+	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgText, content)
+	if err != nil {
+		fmt.Printf("❌ 发送失败: %v\n", err)
+		return
+	}
+
+	// 检查是否 @ 了某人，并发送消息给对应的 Staff
+	mentioned := extractMentions(content)
+	transcript := mtg.GetTranscript()
+	if len(mentioned) > 0 {
+		for _, role := range mentioned {
+			go gBoss.SendMeetingMessage(role, mtg.ID, "boss", content, true, transcript)
+		}
+		fmt.Printf("📢 已通知: %v\n", mentioned)
+	} else {
+		// 自由模式下，随机选择 1-2 人回复（避免太吵）
+		transcript := mtg.GetTranscript()
+		go gBoss.BroadcastMeetingMessageRandom(mtg.ID, "boss", content, 2, transcript)
+	}
+}
+
+func handleMeetingAsk(session *Session, args []string) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		fmt.Println("❌ 当前不在会议中")
+		return
+	}
+
+	if len(args) < 2 {
+		fmt.Println("❌ 用法: ask <staff> <question>")
+		return
+	}
+
+	staff := args[0]
+	question := strings.Join(args[1:], " ")
+
+	content := fmt.Sprintf("@%s %s", staff, question)
+	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgMention, content)
+	if err != nil {
+		fmt.Printf("❌ 发送失败: %v\n", err)
+		return
+	}
+
+	// 将名字转换为 role
+	staffRole := staff
+	if role, ok := nameToRole[staff]; ok {
+		staffRole = role
+	}
+
+	// 获取会议历史
+	transcript := mtg.GetTranscript()
+
+	// 发送消息给指定的 Staff
+	go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", question, true, transcript)
+	fmt.Printf("🎯 已向 @%s 提问\n", staff)
+}
+
+func handleMeetingEnd(session *Session) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		fmt.Println("❌ 当前不在会议中")
+		return
+	}
+
+	fmt.Println("\n📝 正在结束会议并保存记录...")
+
+	// 简单总结
+	summary := fmt.Sprintf("会议 [%s] 共 %d 条消息，参与者: %s",
+		mtg.Topic, len(mtg.Messages), strings.Join(mtg.Participants, ", "))
+
+	// 结束会议
+	if err := gMeetingRoom.EndMeeting(mtg.ID, summary, []string{}); err != nil {
+		fmt.Printf("❌ 结束会议失败: %v\n", err)
+		return
+	}
+
+	fmt.Printf("\n✅ 会议 [%s] 已结束\n", mtg.Topic)
+	fmt.Printf("📁 记录保存到: meetings/%s/\n", mtg.ID)
+
+	// 退出会议模式
+	session.SetMeeting(nil)
+}
+
+func handleMeetingTranscript(session *Session) {
+	mtg := session.GetMeeting()
+	if mtg == nil {
+		fmt.Println("❌ 当前不在会议中")
+		return
+	}
+
+	fmt.Printf("\n📜 会议 [%s] 记录\n", mtg.Topic)
+	fmt.Println(strings.Repeat("-", 80))
+
+	for _, msg := range mtg.Messages {
+		displayMeetingMessage(msg)
+	}
+}
+
+func displayMeetingMessage(msg meeting.Message) {
+	timeStr := msg.Timestamp.Format("15:04:05")
+
+	switch msg.Type {
+	case meeting.MsgText:
+		fmt.Printf("[%s] **%s**: %s\n", timeStr, msg.From, msg.Content)
+	case meeting.MsgMention:
+		fmt.Printf("[%s] **%s** -> %s: %s\n",
+			timeStr, msg.From, strings.Join(msg.MentionTo, ", "), msg.Content)
+	case meeting.MsgAction:
+		fmt.Printf("[%s] *%s*\n", timeStr, msg.Content)
+	}
+}
+
+// nameToRole 名字到角色的映射
+var nameToRole = map[string]string{
+	"张产品":  "product",
+	"产品":    "product",
+	"李开发":  "developer",
+	"开发":    "developer",
+	"dev":     "developer",
+	"王测试":  "tester",
+	"测试":    "tester",
+	"test":    "tester",
+}
+
+// cleanMeetingReply 清理会议回复格式
+func cleanMeetingReply(content string) string {
+	// 去掉 [meetingID] 前缀
+	if idx := strings.Index(content, "] **"); idx != -1 {
+		return content[idx+2:] // 去掉 "] " 保留 "**Name**: content"
+	}
+	return content
+}
+
+// extractMentions 提取 @ 提及并转换为 role
+func extractMentions(content string) []string {
+	var mentions []string
+	words := strings.Fields(content)
+	for _, w := range words {
+		if strings.HasPrefix(w, "@") {
+			name := strings.TrimPrefix(w, "@")
+			// 尝试转换为 role
+			if role, ok := nameToRole[name]; ok {
+				mentions = append(mentions, role)
+			} else {
+				// 直接使用（可能是 role 名称）
+				mentions = append(mentions, name)
+			}
+		}
+	}
+	return mentions
 }

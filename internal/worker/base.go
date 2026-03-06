@@ -86,8 +86,52 @@ func (w *BaseWorker) handleMessage(msg protocol.Message) error {
 		})
 	case protocol.MsgShutdown:
 		os.Exit(0)
+	case protocol.MsgMeetingMsg:
+		return w.handleMeetingMessage(msg)
 	}
 	return nil
+}
+
+// MeetingMessageHandler 会议消息处理器
+type MeetingMessageHandler interface {
+	HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string
+}
+
+var meetingHandler MeetingMessageHandler
+
+// SetMeetingHandler 设置会议处理器
+func SetMeetingHandler(handler MeetingMessageHandler) {
+	meetingHandler = handler
+}
+
+// handleMeetingMessage 处理会议消息
+func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
+	if meetingHandler == nil {
+		return nil
+	}
+
+	payload := msg.Payload
+	meetingID, _ := payload["meeting_id"].(string)
+	from, _ := payload["from"].(string)
+	content, _ := payload["content"].(string)
+	mentioned, _ := payload["mentioned"].(bool)
+	transcript, _ := payload["transcript"].(string) // 获取会议历史
+
+	// 生成回复（传入历史记录）
+	reply := meetingHandler.HandleMeetingMessage(meetingID, from, content, mentioned, transcript)
+	if reply == "" {
+		return nil
+	}
+
+	// 发送回复
+	return w.send(protocol.Message{
+		Type: protocol.MsgMeetingReply,
+		ID:   generateID(),
+		Payload: map[string]any{
+			"meeting_id": meetingID,
+			"content":    reply,
+		},
+	})
 }
 
 // handleAssign 处理任务分配

@@ -28,6 +28,9 @@ Thumbs.db
 # Workspaces - runtime generated projects
 workspaces/
 
+# Meeting records
+meetings/
+
 # Environment files
 .env
 .env.local

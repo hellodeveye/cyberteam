@@ -53,6 +53,8 @@ func main() {
 			Responses: []string{
 				"```go\npackage main\n\nfunc TodoApp() {\n    // TODO: implement\n}\n```",
 				"好的，我修复了空指针问题，添加了边界检查。",
+				"技术上可行，实现复杂度中等，预计 3 天完成。",
+				"同意这个方案，建议先做技术预研。",
 			},
 		}
 		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 DEEPSEEK_API_KEY 启用真实 LLM）\n", *name)
@@ -86,6 +88,13 @@ func main() {
 		profile:   prof,
 	}
 	staff.BaseWorker = worker.NewBaseWorker(profileData, staff)
+
+	// 设置会议处理器（方案二）
+	meetingParticipant := staffutil.NewMeetingParticipant("developer", *name, prof, llmClient, *model)
+	worker.SetMeetingHandler(&StaffMeetingHandler{
+		Participant: meetingParticipant,
+		Name:        *name,
+	})
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Developer staff error: %v\n", err)
@@ -547,4 +556,16 @@ func convertParams(params []profile.Param) []protocol.Param {
 		}
 	}
 	return result
+}
+
+// StaffMeetingHandler Staff 会议处理器
+type StaffMeetingHandler struct {
+	Participant *staffutil.MeetingParticipant
+	Name        string
+}
+
+// HandleMeetingMessage 处理会议消息
+func (h *StaffMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
+	// 使用传入的会议历史
+	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
 }
