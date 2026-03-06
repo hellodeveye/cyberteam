@@ -1,15 +1,18 @@
 package main
 
 import (
-	"cyber-company/internal/llm"
-	"cyber-company/internal/profile"
-	"cyber-company/internal/protocol"
-	"cyber-company/internal/worker"
+	"cyberteam/internal/llm"
+	"cyberteam/internal/profile"
+	"cyberteam/internal/protocol"
+	"cyberteam/internal/staffutil"
+	"cyberteam/internal/tools"
+	"cyberteam/internal/worker"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -132,8 +135,19 @@ PRD：
 反馈建议：
 %s
 
+工作目录: %s/02-design
+
+你可以使用以下 bash 命令来创建设计文档结构：
+- mkdir -p api docs （创建目录）
+- echo "内容" > 文件名 （写入文件）
+
 请输出以下内容（JSON 格式）：
 {
+  "commands": [
+    "mkdir -p api docs",
+    "echo '# API 设计' > api/endpoints.md",
+    ...
+  ],
   "design": "详细设计文档（包含模块划分、接口定义、数据模型）",
   "architecture": "架构图描述（用文本描述）",
   "tech_stack": ["Go", "PostgreSQL", "Redis"]
@@ -143,7 +157,7 @@ PRD：
 1. 模块化设计，职责清晰
 2. 考虑扩展性和可维护性
 3. 明确技术选型理由
-4. 包含关键接口定义`, prd, feedback)
+4. 包含关键接口定义`, prd, feedback, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("design_system")
 	resp, err := s.llmClient.Complete([]llm.Message{
@@ -175,31 +189,41 @@ PRD：
 		}
 	}
 
-	// 将设计文档写入工作目录
+	// 执行 bash 命令创建设计文档结构
 	if task.WorkspaceDir != "" {
-		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   6. 写入设计文档到工作空间..."}}
-
 		stageDir := filepath.Join(task.WorkspaceDir, "02-design")
-		os.MkdirAll(stageDir, 0755)
+		bashTool := tools.NewBashTool(stageDir)
 
-		// 写入设计文档
-		if design, ok := output["design"].(string); ok && design != "" {
-			designPath := filepath.Join(stageDir, "design.md")
-			if err := os.WriteFile(designPath, []byte(design), 0644); err == nil {
-				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ 写入 %s", designPath)}}
+		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
+			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   6. 创建设计文档结构..."}}
+			for _, cmd := range commands {
+				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
+					result := bashTool.Execute(cmdStr)
+					if result.Success {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
+					} else {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ⚠️ %s: %s", cmdStr, result.Error)}}
+					}
+				}
 			}
 		}
 
-		// 写入架构图描述
-		if arch, ok := output["architecture"].(string); ok && arch != "" {
-			archPath := filepath.Join(stageDir, "architecture.md")
-			os.WriteFile(archPath, []byte(arch), 0644)
-		}
+		// 使用新的输出系统写入文件（作为备份）
+		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   7. 写入设计文档..."}}
 
-		// 同时写入一个 JSON 格式的完整输出
-		outputPath := filepath.Join(stageDir, "design-output.json")
-		if outputJSON, err := json.MarshalIndent(output, "", "  "); err == nil {
-			os.WriteFile(outputPath, outputJSON, 0644)
+		handler := staffutil.NewOutputHandler("developer", task.WorkspaceDir)
+		files, err := handler.ProcessAndWrite(task, 2, "design", resp.Content)
+		if err != nil {
+			resultChan <- protocol.TaskResult{
+				TaskID: task.ID,
+				Logs:   []string{fmt.Sprintf("⚠️ 写入文件失败: %v", err)},
+			}
+		} else {
+			for _, f := range files {
+				if !strings.Contains(f, "metadata") {
+					resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ %s", f)}}
+				}
+			}
 		}
 	}
 
@@ -221,13 +245,16 @@ func (s *DeveloperStaff) implementFeature(task protocol.Task, resultChan chan<- 
 	// 发送详细进度日志
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"💻 开始功能开发..."}}
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   1. 分析设计文档..."}}
-	time.Sleep(500 * time.Millisecond)
+	time.Sleep(300 * time.Millisecond)
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   2. 设计代码结构..."}}
-	time.Sleep(500 * time.Millisecond)
-	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 编写核心业务逻辑..."}}
-	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   4. 添加错误处理..."}}
-	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   5. 编写单元测试..."}}
-	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   6. 生成接口文档..."}}
+	time.Sleep(300 * time.Millisecond)
+
+	// 初始化 bash 工具
+	var bashTool *tools.BashTool
+	if task.WorkspaceDir != "" {
+		stageDir := filepath.Join(task.WorkspaceDir, "04-develop")
+		bashTool = tools.NewBashTool(stageDir)
+	}
 
 	prompt := fmt.Sprintf(`你是资深 %s 开发工程师。请根据设计文档和 PRD 实现代码。
 
@@ -237,18 +264,31 @@ PRD：
 设计文档：
 %s
 
+工作目录: %s
+
+你可以使用以下 bash 命令来创建项目结构和文件：
+- mkdir -p 目录名  （创建目录）
+- echo "内容" > 文件名  （写入文件）
+- cat > 文件名 << 'EOF' ... EOF  （写入多行文件）
+
 请输出以下内容（JSON 格式）：
 {
+  "commands": [
+    "mkdir -p internal/service",
+    "echo 'package main' > main.go",
+    ...
+  ],
   "code": "主程序代码（包含完整实现）",
   "tests": "单元测试代码",
   "docs": "接口文档（Markdown 格式）"
 }
 
 要求：
-1. 代码完整可运行
-2. 包含错误处理
-3. 遵循最佳实践
-4. 添加必要注释`, language, prd, design)
+1. 先使用 commands 创建项目结构和目录
+2. 代码完整可运行
+3. 包含错误处理
+4. 遵循最佳实践
+5. 添加必要注释`, language, prd, design, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("implement_feature")
 	resp, err := s.llmClient.Complete([]llm.Message{
@@ -257,7 +297,7 @@ PRD：
 	}, &llm.CompleteOptions{
 		Model:       s.model,
 		Temperature: 0.2,
-		MaxTokens:   3000,
+		MaxTokens:   4000,
 	})
 
 	if err != nil {
@@ -281,41 +321,44 @@ PRD：
 		}
 	}
 
-	// 将代码写入工作目录
+	// 执行 bash 命令创建项目结构
+	if bashTool != nil {
+		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
+			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 创建项目结构..."}}
+			for _, cmd := range commands {
+				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
+					result := bashTool.Execute(cmdStr)
+					if result.Success {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
+					} else {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ⚠️ %s: %s", cmdStr, result.Error)}}
+					}
+				}
+			}
+		}
+	}
+
+	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   4. 添加错误处理..."}}
+	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   5. 编写单元测试..."}}
+	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   6. 生成接口文档..."}}
+
+	// 使用新的输出系统写入文件（作为备份）
 	if task.WorkspaceDir != "" {
 		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   7. 写入代码到工作空间..."}}
 
-		stageDir := filepath.Join(task.WorkspaceDir, "04-develop")
-		os.MkdirAll(stageDir, 0755)
-
-		// 写入主代码
-		if code, ok := output["code"].(string); ok && code != "" {
-			codePath := filepath.Join(stageDir, "main.go")
-			if err := os.WriteFile(codePath, []byte(code), 0644); err == nil {
-				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ 写入 %s", codePath)}}
+		handler := staffutil.NewOutputHandler("developer", task.WorkspaceDir)
+		files, err := handler.ProcessAndWrite(task, 4, "develop", resp.Content)
+		if err != nil {
+			resultChan <- protocol.TaskResult{
+				TaskID: task.ID,
+				Logs:   []string{fmt.Sprintf("⚠️ 写入文件失败: %v", err)},
 			}
-		}
-
-		// 写入测试代码
-		if tests, ok := output["tests"].(string); ok && tests != "" {
-			testPath := filepath.Join(stageDir, "main_test.go")
-			if err := os.WriteFile(testPath, []byte(tests), 0644); err == nil {
-				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ 写入 %s", testPath)}}
+		} else {
+			for _, f := range files {
+				if !strings.Contains(f, "metadata") {
+					resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ %s", f)}}
+				}
 			}
-		}
-
-		// 写入文档
-		if docs, ok := output["docs"].(string); ok && docs != "" {
-			docPath := filepath.Join(stageDir, "README.md")
-			if err := os.WriteFile(docPath, []byte(docs), 0644); err == nil {
-				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ✓ 写入 %s", docPath)}}
-			}
-		}
-
-		// 同时写入一个 JSON 格式的完整输出
-		outputPath := filepath.Join(stageDir, "develop-output.json")
-		if outputJSON, err := json.MarshalIndent(output, "", "  "); err == nil {
-			os.WriteFile(outputPath, outputJSON, 0644)
 		}
 	}
 

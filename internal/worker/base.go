@@ -8,7 +8,7 @@ import (
 	"os"
 	"time"
 
-	"cyber-company/internal/protocol"
+	"cyberteam/internal/protocol"
 )
 
 // Handler 任务处理接口 - 每个员工要实现这个

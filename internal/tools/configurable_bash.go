@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"cyber-company/internal/profile"
+	"cyberteam/internal/profile"
 )
 
 // ConfigurableBashTool 基于配置的可配置 Bash 工具

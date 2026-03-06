@@ -1,15 +1,18 @@
 package main
 
 import (
-	"cyber-company/internal/llm"
-	"cyber-company/internal/profile"
-	"cyber-company/internal/protocol"
-	"cyber-company/internal/worker"
+	"cyberteam/internal/llm"
+	"cyberteam/internal/profile"
+	"cyberteam/internal/protocol"
+	"cyberteam/internal/staffutil"
+	"cyberteam/internal/tools"
+	"cyberteam/internal/worker"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -116,7 +119,14 @@ func (s *TesterStaff) writeTestPlan(task protocol.Task, resultChan chan<- protoc
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📋 分析需求，设计测试场景..."}}
 
-	prompt := fmt.Sprintf(`你是资深测试工程师。请根据 PRD 和设计文档编写测试用例。
+	// 初始化 bash 工具
+	var bashTool *tools.BashTool
+	if task.WorkspaceDir != "" {
+		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
+		bashTool = tools.NewBashTool(stageDir)
+	}
+
+	prompt := fmt.Sprintf(`你是资深测试工程师。请根据 PRD 和设计文档编写测试用例和测试代码。
 
 PRD：
 %s
@@ -124,8 +134,20 @@ PRD：
 设计文档：
 %s
 
+工作目录: %s/05-test
+
+你可以使用以下 bash 命令来创建测试代码：
+- mkdir -p e2e unit （创建目录）
+- echo "内容" > 文件名 （写入文件）
+- cat > 文件名 << 'EOF' ... EOF （写入多行测试代码）
+
 请输出以下内容（JSON 格式）：
 {
+  "commands": [
+    "mkdir -p e2e unit",
+    "cat > unit/main_test.go << 'EOF'\npackage main\n...\nEOF",
+    ...
+  ],
   "test_cases": [
     {
       "id": "TC-001",
@@ -136,14 +158,15 @@ PRD：
       "expected": "预期结果"
     }
   ],
+  "test_code": "测试代码（Go/Python/JS 等）",
   "coverage": "覆盖率百分比"
 }
 
 要求：
-1. 覆盖所有功能点
-2. 包含正向、反向、边界测试
-3. 优先级合理
-4. 步骤清晰可执行`, prd, design)
+1. 使用 commands 创建测试目录和测试代码文件
+2. 测试代码完整可运行
+3. 覆盖所有功能点
+4. 包含正向、反向、边界测试`, prd, design, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("write_test_plan")
 	resp, err := s.llmClient.Complete([]llm.Message{
@@ -177,11 +200,54 @@ PRD：
 	testCases, _ := output["test_cases"].([]interface{})
 	coverage, _ := output["coverage"].(string)
 
+	// 执行 bash 命令创建测试代码
+	if bashTool != nil {
+		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
+			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 创建测试代码..."}}
+			for _, cmd := range commands {
+				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
+					result := bashTool.Execute(cmdStr)
+					if result.Success {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
+					} else {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ⚠️ %s: %s", cmdStr, result.Error)}}
+					}
+				}
+			}
+		}
+
+		// 如果生成了 test_code，也写入文件
+		if testCode, ok := output["test_code"].(string); ok && testCode != "" {
+			result := bashTool.WriteFile("unit/test_suite.go", []byte(testCode))
+			if result.Success {
+				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"      ✓ 写入 unit/test_suite.go"}}
+			}
+		}
+
+		// 使用新的输出系统写入测试文档
+		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入测试文档..."}}
+
+		handler := staffutil.NewOutputHandler("tester", task.WorkspaceDir)
+		files, err := handler.ProcessAndWrite(task, 5, "test", resp.Content)
+		if err != nil {
+			resultChan <- protocol.TaskResult{
+				TaskID: task.ID,
+				Logs:   []string{fmt.Sprintf("⚠️ 写入文件失败: %v", err)},
+			}
+		} else {
+			for _, f := range files {
+				if !strings.Contains(f, "metadata") {
+					resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("  ✓ %s", f)}}
+				}
+			}
+		}
+	}
+
 	result := protocol.TaskResult{
 		TaskID:   task.ID,
 		Success:  true,
 		Outputs:  output,
-		Logs:     []string{fmt.Sprintf("✅ 生成 %d 条测试用例，覆盖率 %s", len(testCases), coverage)},
+		Logs:     []string{fmt.Sprintf("✅ 生成 %d 条测试用例和测试代码，覆盖率 %s", len(testCases), coverage)},
 		Duration: time.Since(start).Milliseconds(),
 	}
 	resultChan <- result
@@ -193,7 +259,14 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"🔍 正在执行测试..."}}
 
-	prompt := fmt.Sprintf(`你是测试执行专家。请分析代码并模拟执行测试用例。
+	// 初始化 bash 工具
+	var bashTool *tools.BashTool
+	if task.WorkspaceDir != "" {
+		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
+		bashTool = tools.NewBashTool(stageDir)
+	}
+
+	prompt := fmt.Sprintf(`你是测试执行专家。请分析代码并模拟执行测试用例，生成测试报告。
 
 待测代码：
 %s
@@ -201,8 +274,19 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 测试用例：
 %s
 
+工作目录: %s/05-test
+
+你可以使用以下 bash 命令来操作：
+- go test -v ./... （运行 Go 测试）
+- cat > report.md << 'EOF' ... EOF （写入测试报告）
+
 请输出以下内容（JSON 格式）：
 {
+  "commands": [
+    "go test -v ./... 2>&1 | tee test.log",
+    "echo '# 测试报告' > report.md",
+    ...
+  ],
   "report": {
     "total": 总用例数，
     "passed": 通过数，
@@ -223,7 +307,7 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 注意：
 1. 基于代码质量给出真实的测试结果
 2. 发现潜在问题
-3. 给出具体的 Bug 描述`, code, string(testCasesData))
+3. 给出具体的 Bug 描述`, code, string(testCasesData), task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("execute_test")
 	resp, err := s.llmClient.Complete([]llm.Message{
@@ -258,6 +342,41 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 	status := "✅ 测试通过"
 	if !passed {
 		status = fmt.Sprintf("❌ 测试未通过，发现 %d 个 Bug", len(bugs))
+	}
+
+	// 执行 bash 命令（如运行测试）
+	if bashTool != nil {
+		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
+			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 执行测试命令..."}}
+			for _, cmd := range commands {
+				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
+					result := bashTool.Execute(cmdStr)
+					if result.Success {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
+					} else {
+						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      ⚠️ %s: %s", cmdStr, result.Error)}}
+					}
+				}
+			}
+		}
+
+		// 使用新的输出系统写入测试报告
+		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入测试报告..."}}
+
+		handler := staffutil.NewOutputHandler("tester", task.WorkspaceDir)
+		files, err := handler.ProcessAndWrite(task, 5, "test", resp.Content)
+		if err != nil {
+			resultChan <- protocol.TaskResult{
+				TaskID: task.ID,
+				Logs:   []string{fmt.Sprintf("⚠️ 写入文件失败: %v", err)},
+			}
+		} else {
+			for _, f := range files {
+				if !strings.Contains(f, "metadata") {
+					resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("  ✓ %s", f)}}
+				}
+			}
+		}
 	}
 
 	result := protocol.TaskResult{

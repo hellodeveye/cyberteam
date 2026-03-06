@@ -1,10 +1,11 @@
 package main
 
 import (
-	"cyber-company/internal/llm"
-	"cyber-company/internal/profile"
-	"cyber-company/internal/protocol"
-	"cyber-company/internal/worker"
+	"cyberteam/internal/llm"
+	"cyberteam/internal/profile"
+	"cyberteam/internal/protocol"
+	"cyberteam/internal/staffutil"
+	"cyberteam/internal/worker"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -164,6 +165,24 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 			"prd":                 resp.Content,
 			"user_stories":        []string{"作为用户，我希望使用这个功能"},
 			"acceptance_criteria": []string{"功能可用", "界面友好"},
+		}
+	}
+
+	// 使用新的输出系统写入文件
+	if task.WorkspaceDir != "" {
+		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入 PRD 文档..."}}
+		
+		handler := staffutil.NewOutputHandler("product", task.WorkspaceDir)
+		files, err := handler.ProcessAndWrite(task, 1, "requirement", resp.Content)
+		if err != nil {
+			resultChan <- protocol.TaskResult{
+				TaskID: task.ID,
+				Logs:   []string{fmt.Sprintf("⚠️ 写入文件失败: %v", err)},
+			}
+		} else {
+			for _, f := range files {
+				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("  ✓ %s", f)}}
+			}
 		}
 	}
 

@@ -1,4 +1,4 @@
-# Agent Cluster - AI 软件公司
+# CyberTeam - AI 软件开发团队
 
 一个基于 Go + stdio 的 Boss-Staff 智能体集群，模拟真实的软件开发团队运作。每个 AI Staff 都是独立的 LLM Agent，支持声明式权限配置和安全的 Bash 工具执行。
 
@@ -92,8 +92,8 @@ go build -o cmd/staff/tester/tester ./cmd/staff/tester
 ### 会话式交互（类似 tmux）
 
 ```bash
-🏢 AI Agent 软件公司
-====================
+🏢 CyberTeam - AI 软件开发团队
+==============================
 
 📂 已加载 2 个历史项目
    - TodoApp (completed)

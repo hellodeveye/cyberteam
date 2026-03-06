@@ -11,10 +11,10 @@ import (
 	"sync"
 	"time"
 
-	"cyber-company/internal/protocol"
-	"cyber-company/internal/registry"
-	"cyber-company/internal/workspace"
-	"cyber-company/internal/workflow"
+	"cyberteam/internal/protocol"
+	"cyberteam/internal/registry"
+	"cyberteam/internal/workspace"
+	"cyberteam/internal/workflow"
 )
 
 // Manager 项目经理
@@ -189,7 +189,6 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 
 			m.registry.Register(&profile)
 			content := fmt.Sprintf("✅ %s 入职: %s (%s)", getRoleIcon(profile.Role), profile.Name, profile.Role)
-			fmt.Println(content)
 			if m.msgCallback != nil {
 				m.msgCallback(staffID, string(msg.Type), content)
 			}
@@ -209,7 +208,6 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 		m.mu.RUnlock()
 		if proc != nil && proc.Profile != nil {
 			content := fmt.Sprintf("🚀 %s 开始处理任务 %s", proc.Profile.Name, msg.TaskID[:8])
-			fmt.Println(content)
 			if m.msgCallback != nil {
 				m.msgCallback(staffID, string(msg.Type), content)
 			}
@@ -219,9 +217,9 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 		if logs, ok := msg.Payload["logs"].([]any); ok && len(logs) > 0 {
 			lastLog := logs[len(logs)-1]
 			content := fmt.Sprintf("   %s", lastLog)
-			fmt.Println(content)
 			// 存储日志
 			m.AddTaskLog(msg.TaskID, staffID, "info", fmt.Sprintf("%v", lastLog))
+			// 通过回调通知（由消息队列统一显示，避免重复打印）
 			if m.msgCallback != nil {
 				m.msgCallback(staffID, string(msg.Type), content)
 			}
@@ -243,7 +241,6 @@ func (m *Manager) handleTaskComplete(staffID, taskID string, payload map[string]
 
 	if proc != nil && proc.Profile != nil {
 		msg := fmt.Sprintf("✅ %s 完成任务 %s", proc.Profile.Name, taskID[:8])
-		fmt.Println(msg)
 		if m.msgCallback != nil {
 			m.msgCallback(staffID, "complete", msg)
 		}

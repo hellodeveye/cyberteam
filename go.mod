@@ -1,4 +1,4 @@
-module cyber-company
+module cyberteam
 
 go 1.22
 

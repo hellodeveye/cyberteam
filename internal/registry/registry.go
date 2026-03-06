@@ -1,7 +1,7 @@
 package registry
 
 import (
-	"cyber-company/internal/protocol"
+	"cyberteam/internal/protocol"
 	"fmt"
 	"sync"
 )

@@ -1,10 +1,10 @@
 package main
 
 import (
-	"cyber-company/internal/master"
-	"cyber-company/internal/storage"
-	"cyber-company/internal/workflow"
-	"cyber-company/internal/workspace"
+	"cyberteam/internal/master"
+	"cyberteam/internal/storage"
+	"cyberteam/internal/workflow"
+	"cyberteam/internal/workspace"
 	"bufio"
 	"encoding/json"
 	"fmt"

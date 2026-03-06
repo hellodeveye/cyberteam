@@ -14,21 +14,47 @@ func CreateDevWorkflow() *Workflow {
 				NextStages:  []Stage{StageDesign},
 				OnComplete: func(engine *Engine, project *Project, task *Task) error {
 					// PRD 完成后，自动创建设计任务
+					// 从 task.Output 中提取 PRD 内容（支持字符串或嵌套对象）
+					var prdContent string
+					if output, ok := task.Output.(map[string]any); ok {
+						if prd, ok := output["prd"].(string); ok && prd != "" {
+							prdContent = prd
+						} else {
+							// 如果没有 prd 字段，使用整个输出作为内容
+							prdContent = fmt.Sprintf("%v", output)
+						}
+					} else if str, ok := task.Output.(string); ok {
+						prdContent = str
+					}
+					
 					designTask := engine.CreateTask(project.ID, StageDesign,
 						fmt.Sprintf("设计: %s", project.Name),
 						"基于PRD进行系统设计",
 						map[string]any{
-							"prd":      task.Output,
+							"prd":      prdContent,
 							"feedback": "",
 						})
+					
 					// 设计完成后需要评审（任务级回调）
 					designTask.OnComplete = func(t *Task) {
+						// 从设计任务输出中提取设计内容
+						var designContent string
+						if output, ok := t.Output.(map[string]any); ok {
+							if design, ok := output["design"].(string); ok && design != "" {
+								designContent = design
+							} else {
+								designContent = fmt.Sprintf("%v", output)
+							}
+						} else if str, ok := t.Output.(string); ok {
+							designContent = str
+						}
+						
 						engine.CreateTask(project.ID, StageReview,
 							fmt.Sprintf("评审设计: %s", project.Name),
 							"评审系统设计方案",
 							map[string]any{
-								"design": t.Output,
-								"prd":    project.Artifacts["prd"],
+								"design": designContent,
+								"prd":    prdContent,
 							})
 					}
 					return nil
@@ -50,11 +76,19 @@ func CreateDevWorkflow() *Workflow {
 				NextStages:  []Stage{StageDevelop, StageDesign}, // 通过或打回
 				OnComplete: func(engine *Engine, project *Project, task *Task) error {
 					// 评审通过后创建开发任务
+					// 从评审任务输入中获取设计内容（评审任务不改变设计内容）
+					var designContent string
+					if input, ok := task.Input.(map[string]any); ok {
+						if design, ok := input["design"].(string); ok {
+							designContent = design
+						}
+					}
+					
 					devTask := engine.CreateTask(project.ID, StageDevelop,
 						fmt.Sprintf("开发: %s", project.Name),
 						"根据设计文档进行开发",
 						map[string]any{
-							"design": project.Artifacts["design"],
+							"design": designContent,
 							"prd":    project.Artifacts["prd"],
 						})
 
