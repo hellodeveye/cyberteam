@@ -44,19 +44,14 @@ func main() {
 	execDir := filepath.Dir(execPath)
 	profilePath := filepath.Join(execDir, "PROFILE.md")
 
-	var llmClient llm.Client
-	if *apiKey != "" {
-		llmClient = llm.NewOpenAIClient(*apiKey, *baseURL)
-	} else {
-		llmClient = &llm.MockClient{
-			Responses: []string{
-				"```go\npackage main\n\nfunc TodoApp() {\n    // TODO: implement\n}\n```",
-				"好的，我修复了空指针问题，添加了边界检查。",
-				"技术上可行，实现复杂度中等，预计 3 天完成。",
-				"同意这个方案，建议先做技术预研。",
-			},
-		}
+	// 创建 LLM 客户端（必须配置 API Key）
+	if *apiKey == "" {
+		fmt.Fprintf(os.Stderr, "错误: 未设置 OPENAI_API_KEY 环境变量\n")
+		fmt.Fprintf(os.Stderr, "请设置 API Key 后重试:\n")
+		fmt.Fprintf(os.Stderr, "  export OPENAI_API_KEY=your-api-key\n")
+		os.Exit(1)
 	}
+	llmClient := llm.NewOpenAIClient(*apiKey, *baseURL)
 
 	// 加载 Profile
 	var prof *profile.Profile

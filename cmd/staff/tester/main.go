@@ -44,19 +44,14 @@ func main() {
 	execDir := filepath.Dir(execPath)
 	profilePath := filepath.Join(execDir, "PROFILE.md")
 
-	var llmClient llm.Client
-	if *apiKey != "" {
-		llmClient = llm.NewOpenAIClient(*apiKey, *baseURL)
-	} else {
-		llmClient = &llm.MockClient{
-			Responses: []string{
-				`{"test_cases": [{"id": "TC-001", "title": "登录成功", "priority": "P0"}], "coverage": "90%"}`,
-				`{"report": {"total": 10, "passed": 9, "failed": 1}, "bugs": [{"id": "BUG-001", "severity": "high", "desc": "边界值错误"}]}`,
-				"测试角度没问题，边界条件需要考虑异常流程。",
-				"建议补充自动化测试用例，确保回归覆盖。",
-			},
-		}
+	// 创建 LLM 客户端（必须配置 API Key）
+	if *apiKey == "" {
+		fmt.Fprintf(os.Stderr, "错误: 未设置 OPENAI_API_KEY 环境变量\n")
+		fmt.Fprintf(os.Stderr, "请设置 API Key 后重试:\n")
+		fmt.Fprintf(os.Stderr, "  export OPENAI_API_KEY=your-api-key\n")
+		os.Exit(1)
 	}
+	llmClient := llm.NewOpenAIClient(*apiKey, *baseURL)
 
 	// 加载 Profile
 	var prof *profile.Profile
