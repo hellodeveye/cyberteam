@@ -5,7 +5,6 @@ import (
 	"cyberteam/internal/profile"
 	"cyberteam/internal/tools"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -130,9 +129,6 @@ func (p *MeetingParticipant) AutoExecuteTool(question string, workDir string) (s
 	if cmd == "" {
 		return "", false
 	}
-
-	// 调试日志
-	fmt.Fprintf(os.Stderr, "[DEBUG] 检测到命令: %s (问题: %s)\n", cmd, question)
 
 	// 创建 bash 工具
 	bashTool := tools.NewBashTool(workDir)
