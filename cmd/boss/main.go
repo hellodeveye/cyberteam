@@ -187,27 +187,29 @@ func main() {
 		}
 	})
 
-	// 招聘员工
+	// 召集员工
 	staffs := []struct {
 		role   string
 		name   string
 		binary string
+		emoji  string
 	}{
-		{"product", "张产品", filepath.Join(rootDir, "cmd/staff/product/product")},
-		{"developer", "李开发", filepath.Join(rootDir, "cmd/staff/developer/developer")},
-		{"tester", "王测试", filepath.Join(rootDir, "cmd/staff/tester/tester")},
+		{"product", "张产品", filepath.Join(rootDir, "cmd/staff/product/product"), "👩‍💼"},
+		{"developer", "李开发", filepath.Join(rootDir, "cmd/staff/developer/developer"), "👨‍💻"},
+		{"tester", "王测试", filepath.Join(rootDir, "cmd/staff/tester/tester"), "🧪"},
 	}
 
-	fmt.Println("\n📋 正在组建团队...")
+	fmt.Println("\n👥 正在召集员工...")
 	for _, s := range staffs {
 		if _, err := boss.HireStaff(s.role, s.name, s.binary); err != nil {
-			fmt.Printf("❌ %s 入职失败: %v\n", s.name, err)
+			fmt.Printf("❌ %s %s 上班失败: %v\n", s.emoji, s.name, err)
 		} else {
+			fmt.Printf("   - %s %s (%s)\n", s.emoji, s.name, s.role)
 			time.Sleep(200 * time.Millisecond)
 		}
 	}
 
-	fmt.Println("\n✅ 团队组建完成！")
+	fmt.Println("\n✅ 员工已到齐！")
 	time.Sleep(500 * time.Millisecond)
 
 	// 初始化会议室
