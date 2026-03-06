@@ -354,8 +354,15 @@ func (m *Manager) BroadcastMeetingMessageRandom(meetingID string, from string, c
 					"transcript": transcript, // 传递会议历史
 				},
 			}
-			data, _ := json.Marshal(msg)
-			p.Stdin.Write(append(data, '\n'))
+			data, err := json.Marshal(msg)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[Boss] 消息序列化失败: %v\n", err)
+				return
+			}
+			_, err = p.Stdin.Write(append(data, '\n'))
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "[Boss] 发送消息给 %s 失败: %v\n", p.Role, err)
+			}
 		}(proc)
 	}
 	return nil

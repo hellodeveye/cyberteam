@@ -252,18 +252,22 @@ func main() {
 		for {
 			msgQueue.Wait()
 			msgs := msgQueue.PopAll()
-			for _, msg := range msgs {
-				fmt.Printf("\r%-80s\n", "")
-				// 使用简洁格式，时间右对齐灰色显示
-				timeStr := time.Now().Format("15:04:05")
-				// 格式: 消息内容 ... 时间(灰色)
-				const totalWidth = 80
-				lineLen := len(msg)
-				spaces := totalWidth - lineLen - len(timeStr)
-				if spaces < 1 {
-					spaces = 1
+			if len(msgs) > 0 {
+				// 清除当前行并打印所有消息
+				fmt.Printf("\r\033[K")
+				for _, msg := range msgs {
+					// 使用简洁格式，时间右对齐灰色显示
+					timeStr := time.Now().Format("15:04:05")
+					// 格式: 消息内容 ... 时间(灰色)
+					const totalWidth = 80
+					lineLen := len(msg)
+					spaces := totalWidth - lineLen - len(timeStr)
+					if spaces < 1 {
+						spaces = 1
+					}
+					fmt.Printf("%s%s%s%s%s\n", msg, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
 				}
-				fmt.Printf("%s%s%s%s%s\n", msg, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
+				// 恢复输入行
 				rl.Refresh()
 			}
 		}
