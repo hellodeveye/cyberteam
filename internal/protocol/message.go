@@ -45,6 +45,10 @@ const (
 	MsgMeetingMsg   MessageType = "meeting_msg"   // 会议消息
 	MsgMeetingReply MessageType = "meeting_reply" // 会议回复
 
+	// 私聊相关
+	MsgPrivate      MessageType = "private"       // 私聊消息
+	MsgPrivateReply MessageType = "private_reply" // 私聊回复
+
 	// 工具执行
 	MsgToolExec   MessageType = "tool_exec"   // 执行工具
 	MsgToolResult MessageType = "tool_result" // 工具执行结果

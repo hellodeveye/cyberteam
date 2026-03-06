@@ -30,6 +30,13 @@ type Session struct {
 	mu             sync.RWMutex
 	currentProject *workflow.Project
 	currentMeeting *meeting.Meeting
+	privateChat    *PrivateChat // 当前私聊对象
+}
+
+// PrivateChat 私聊状态
+type PrivateChat struct {
+	With      string    // 对方名字
+	StartedAt time.Time // 开始时间
 }
 
 func NewSession() *Session {
@@ -67,17 +74,53 @@ func (s *Session) InMeeting() bool {
 	return s.currentMeeting != nil
 }
 
+// SetPrivateChat 设置私聊对象
+func (s *Session) SetPrivateChat(with string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.privateChat = &PrivateChat{
+		With:      with,
+		StartedAt: time.Now(),
+	}
+}
+
+// GetPrivateChat 获取当前私聊对象
+func (s *Session) GetPrivateChat() *PrivateChat {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.privateChat
+}
+
+// InPrivateChat 检查是否在私聊中
+func (s *Session) InPrivateChat() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.privateChat != nil
+}
+
+// ExitPrivateChat 退出私聊
+func (s *Session) ExitPrivateChat() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.privateChat = nil
+}
+
 func (s *Session) GetPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	// 会议模式下简化提示符
+	// 私聊模式
+	if s.privateChat != nil {
+		return fmt.Sprintf("💬 [%s] > ", s.privateChat.With)
+	}
+	// 会议模式
 	if s.currentMeeting != nil {
 		return "🎤 > "
 	}
-	if s.currentProject == nil {
-		return "🎤 > "
+	// 项目模式
+	if s.currentProject != nil {
+		return fmt.Sprintf("🎤 [%s] > ", s.currentProject.Name)
 	}
-	return fmt.Sprintf("🎤 [%s] > ", s.currentProject.Name)
+	return "CyberTeam > "
 }
 
 // MessageQueue 异步消息队列
@@ -346,6 +389,7 @@ var builtinCommands = map[string]bool{
 	"reject": true, "no": true,
 	"team": true,
 	"meeting": true, "mtg": true, "m": true,
+	"chat": true, "c": true,
 	"help": true, "h": true,
 	"exit": true, "quit": true,
 }
@@ -360,7 +404,20 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 	parts := strings.SplitN(line, " ", 3)
 	cmd := parts[0]
 
-	// 方案 C: 会议模式下，非命令输入 = 直接发言
+	// 私聊模式：.. 退出私聊
+	if session.InPrivateChat() && cmd == ".." {
+		session.ExitPrivateChat()
+		fmt.Println("(退出私聊)")
+		return
+	}
+
+	// 私聊模式：非命令输入 = 发送私聊消息
+	if session.InPrivateChat() && !isBuiltinCommand(cmd) {
+		handlePrivateMessage(session, line)
+		return
+	}
+
+	// 会议模式下，非命令输入 = 直接发言
 	if session.InMeeting() && !isBuiltinCommand(cmd) {
 		if strings.HasPrefix(line, "@") {
 			// @开头 = 点名发言
@@ -399,6 +456,8 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 		boss.ShowTeam()
 	case "meeting", "mtg", "m":
 		handleMeeting(session, parts)
+	case "chat", "c":
+		handleChat(session, parts[1:])
 	case "help", "h":
 		printHelp()
 	case "exit", "quit":
@@ -437,6 +496,10 @@ func printHelp() {
 	fmt.Println("💡 提示: 进入会议后，直接输入内容即可发言")
 	fmt.Println("        @Alex 你的问题    - 点名指定人回答")
 	fmt.Println("        大家好              - 自由发言（随机人回复）")
+	fmt.Println()
+	fmt.Println("💬 私聊命令:")
+	fmt.Println("  chat <name>             和指定员工私聊")
+	fmt.Println("  ..                      退出私聊")
 	fmt.Println()
 }
 
@@ -1549,6 +1612,74 @@ func getSenderColor(from string) string {
 		return c
 	}
 	return ColorWhite
+}
+
+// ==================== Private Chat Commands ====================
+
+func handleChat(session *Session, args []string) {
+	if len(args) < 1 {
+		fmt.Println("❌ 用法: chat <name>")
+		fmt.Println("   chat Sarah    - 和 Sarah 私聊")
+		fmt.Println("   chat Alex     - 和 Alex 私聊")
+		fmt.Println("   chat Mia      - 和 Mia 私聊")
+		fmt.Println("   ..            - 退出私聊")
+		return
+	}
+
+	name := args[0]
+
+	// 检查是否是有效的员工名字
+	role, ok := nameToRole[name]
+	if !ok {
+		fmt.Printf("❌ 未知员工: %s\n", name)
+		fmt.Println("   可用: Sarah, Alex, Mia")
+		return
+	}
+
+	// 检查员工是否在线
+	if !gBoss.IsStaffOnline(role) {
+		fmt.Printf("❌ %s 当前不在线\n", name)
+		return
+	}
+
+	// 进入私聊模式
+	session.SetPrivateChat(name)
+
+	// 注册私聊消息回调
+	gBoss.SetPrivateMessageCallback(func(staffName, content string) {
+		// 只显示当前私聊对象的消息
+		pc := session.GetPrivateChat()
+		if pc != nil && pc.With == staffName {
+			color := getSenderColor(staffName)
+			fmt.Printf("\n%s%s%s: %s\n", color, staffName, ColorReset, content)
+			// 刷新提示符
+			fmt.Print(session.GetPrompt())
+		}
+	})
+
+	fmt.Printf("\n💬 开始和 %s 私聊\n", name)
+	fmt.Println("   直接输入消息发送")
+	fmt.Println("   .. 退出私聊")
+}
+
+func handlePrivateMessage(session *Session, content string) {
+	pc := session.GetPrivateChat()
+	if pc == nil {
+		return
+	}
+
+	// 获取对方 role
+	role, ok := nameToRole[pc.With]
+	if !ok {
+		fmt.Println("❌ 私聊对象错误")
+		return
+	}
+
+	// 发送私聊消息给 Staff
+	go gBoss.SendPrivateMessage(role, "boss", content)
+
+	// 本地显示
+	fmt.Printf("%sKai%s: %s\n", ColorPurple, ColorReset, content)
 }
 
 // ANSI 颜色代码

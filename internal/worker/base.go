@@ -91,6 +91,8 @@ func (w *BaseWorker) handleMessage(msg protocol.Message) error {
 		os.Exit(0)
 	case protocol.MsgMeetingMsg:
 		return w.handleMeetingMessage(msg)
+	case protocol.MsgPrivate:
+		return w.handlePrivateMessage(msg)
 	}
 	return nil
 }
@@ -133,6 +135,44 @@ func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
 		Payload: map[string]any{
 			"meeting_id": meetingID,
 			"content":    reply,
+		},
+	})
+}
+
+// PrivateMessageHandler 私聊消息处理器
+type PrivateMessageHandler interface {
+	HandlePrivateMessage(from string, content string) string
+}
+
+var privateHandler PrivateMessageHandler
+
+// SetPrivateHandler 设置私聊处理器
+func SetPrivateHandler(handler PrivateMessageHandler) {
+	privateHandler = handler
+}
+
+// handlePrivateMessage 处理私聊消息
+func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
+	if privateHandler == nil {
+		return nil
+	}
+
+	payload := msg.Payload
+	from, _ := payload["from"].(string)
+	content, _ := payload["content"].(string)
+
+	// 生成回复
+	reply := privateHandler.HandlePrivateMessage(from, content)
+	if reply == "" {
+		return nil
+	}
+
+	// 发送回复
+	return w.send(protocol.Message{
+		Type: protocol.MsgPrivateReply,
+		ID:   generateID(),
+		Payload: map[string]any{
+			"content": reply,
 		},
 	})
 }

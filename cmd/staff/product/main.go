@@ -85,6 +85,12 @@ func main() {
 		Name:        *name,
 	})
 
+	// 设置私聊处理器
+	worker.SetPrivateHandler(&ProductPrivateHandler{
+		Participant: meetingParticipant,
+		Name:        *name,
+	})
+
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Product staff error: %v\n", err)
 		os.Exit(1)
@@ -375,4 +381,15 @@ type ProductMeetingHandler struct {
 // HandleMeetingMessage 处理会议消息
 func (h *ProductMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
 	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
+}
+
+// ProductPrivateHandler Product 私聊处理器
+type ProductPrivateHandler struct {
+	Participant *staffutil.MeetingParticipant
+	Name        string
+}
+
+// HandlePrivateMessage 处理私聊消息
+func (h *ProductPrivateHandler) HandlePrivateMessage(from string, content string) string {
+	return h.Participant.GenerateReply("", "私聊", "", from, content, true)
 }

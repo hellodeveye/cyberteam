@@ -32,6 +32,10 @@ type Manager struct {
 	// 心跳跟踪
 	lastHeartbeat map[string]time.Time // staffID -> 最后心跳时间
 	heartbeatMu   sync.RWMutex
+
+	// 私聊消息回调
+	privateMsgCallback func(staffName, content string)
+	privateMu          sync.RWMutex
 }
 
 // LogEntry 日志条目
@@ -273,6 +277,22 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 		if proc != nil && proc.Profile != nil {
 			if m.msgCallback != nil {
 				m.msgCallback(staffID, "meeting_reply", fmt.Sprintf("[%s] **%s**: %s", meetingID, proc.Profile.Name, content))
+			}
+		}
+
+	case protocol.MsgPrivateReply:
+		// Staff 的私聊回复
+		content, _ := msg.Payload["content"].(string)
+		m.mu.RLock()
+		proc := m.staffs[staffID]
+		m.mu.RUnlock()
+		if proc != nil && proc.Profile != nil {
+			// 调用私聊回调
+			m.privateMu.RLock()
+			callback := m.privateMsgCallback
+			m.privateMu.RUnlock()
+			if callback != nil {
+				callback(proc.Profile.Name, content)
 			}
 		}
 	}
@@ -759,4 +779,50 @@ func getRoleIcon(role string) string {
 
 func generateID() string {
 	return protocol.GenerateID()
+}
+
+// SetPrivateMessageCallback 设置私聊消息回调
+func (m *Manager) SetPrivateMessageCallback(callback func(staffName, content string)) {
+	m.privateMu.Lock()
+	defer m.privateMu.Unlock()
+	m.privateMsgCallback = callback
+}
+
+// IsStaffOnline 检查指定角色的员工是否在线
+func (m *Manager) IsStaffOnline(role string) bool {
+	staffs := m.registry.ListByRole(role)
+	for _, s := range staffs {
+		if s.Status != protocol.StatusOffline {
+			return true
+		}
+	}
+	return false
+}
+
+// SendPrivateMessage 发送私聊消息给指定角色的员工
+func (m *Manager) SendPrivateMessage(role, from, content string) error {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	// 找到对应角色的员工
+	for _, proc := range m.staffs {
+		if proc.Profile != nil && proc.Profile.Role == role {
+			msg := protocol.Message{
+				Type: protocol.MsgPrivate,
+				ID:   protocol.GenerateID(),
+				Payload: map[string]any{
+					"from":    from,
+					"content": content,
+				},
+			}
+			data, err := json.Marshal(msg)
+			if err != nil {
+				return err
+			}
+			fmt.Fprintln(proc.Stdin, string(data))
+			return nil
+		}
+	}
+
+	return fmt.Errorf("no staff found for role: %s", role)
 }
