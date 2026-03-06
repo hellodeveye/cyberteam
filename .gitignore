@@ -1,5 +1,8 @@
 # Binaries
 bin/
+cmd/staff/product/product
+cmd/staff/developer/developer
+cmd/staff/tester/tester
 *.exe
 *.dll
 *.so
