@@ -49,8 +49,6 @@ func (m *Manager) StartAll() error {
 		return nil
 	}
 
-	m.logger("[MCP] 启动 %d 个 Server...", len(enabled))
-
 	var wg sync.WaitGroup
 	errChan := make(chan error, len(enabled))
 
@@ -68,8 +66,6 @@ func (m *Manager) StartAll() error {
 			m.mu.Lock()
 			m.servers[name] = instance
 			m.mu.Unlock()
-
-			m.logger("[MCP:%s] 已启动，%d 个工具", name, len(instance.Tools))
 		}(name, serverConfig)
 	}
 
