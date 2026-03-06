@@ -176,14 +176,17 @@ func main() {
 
 	// 设置 Staff 消息回调
 	boss.SetMessageCallback(func(staffID, msgType, content string) {
+		// 统一添加时间戳前缀
+		timeStr := time.Now().Format("15:04:05")
+
 		if msgType == "meeting_reply" {
-			// 会议回复直接显示（Staff 的发言），添加颜色
+			// 会议回复直接显示（Staff 的发言），添加颜色和时间戳
 			coloredContent := colorizeMeetingReply(content)
-			msgQueue.Push(coloredContent)
+			msgQueue.Push(fmt.Sprintf("[%s] %s", timeStr, coloredContent))
 		} else {
 			// 普通消息也添加颜色
 			coloredContent := colorizeStaffMessage(staffID, content)
-			msgQueue.Push(coloredContent)
+			msgQueue.Push(fmt.Sprintf("[%s] %s", timeStr, coloredContent))
 		}
 	})
 
@@ -1473,13 +1476,13 @@ func displayMeetingMessage(msg meeting.Message) {
 
 	// 获取发送者颜色
 	color := getSenderColor(msg.From)
+	reset := ColorReset
 
 	switch msg.Type {
 	case meeting.MsgText:
-		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, ColorReset, msg.Content)
+		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, reset, msg.Content)
 	case meeting.MsgMention:
-		fmt.Printf("[%s] %s%s%s -> %s: %s\n",
-			timeStr, color, msg.From, ColorReset, strings.Join(msg.MentionTo, ", "), msg.Content)
+		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, reset, msg.Content)
 	case meeting.MsgAction:
 		fmt.Printf("[%s] *%s*\n", timeStr, msg.Content)
 	}
