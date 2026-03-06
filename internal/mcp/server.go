@@ -66,12 +66,17 @@ func NewServerInstance(name string, config Server) *ServerInstance {
 // Start 启动 MCP Server
 func (s *ServerInstance) Start() error {
 	// 解析命令
-	args := parseCommand(s.Config.Command)
-	if len(args) == 0 {
+	cmdArgs := parseCommand(s.Config.Command)
+	if len(cmdArgs) == 0 {
 		return fmt.Errorf("empty command")
 	}
 
-	s.Cmd = exec.Command(args[0], args[1:]...)
+	// 如果有额外 args，追加到命令后面
+	if len(s.Config.Args) > 0 {
+		cmdArgs = append(cmdArgs, s.Config.Args...)
+	}
+
+	s.Cmd = exec.Command(cmdArgs[0], cmdArgs[1:]...)
 
 	// 设置环境变量
 	s.Cmd.Env = os.Environ()

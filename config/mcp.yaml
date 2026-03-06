@@ -60,3 +60,20 @@ servers:
       roles: [developer, tester]
       allowed_tools:
         - query
+
+  firecrawl:
+    enabled: true
+    description: "Firecrawl 网页抓取与分析"
+    command: "npx"
+    args:
+      - "-y"
+      - "firecrawl-mcp"
+    env:
+      FIRECRAWL_API_KEY: "${FIRECRAWL_API_KEY}"
+    acl:
+      roles: [developer, product, tester]
+      allowed_tools:
+        - scrape
+        - crawl
+        - search
+        - extract

@@ -28,6 +28,7 @@ type Server struct {
 	Enabled     bool              `yaml:"enabled"`
 	Description string            `yaml:"description"`
 	Command     string            `yaml:"command"`
+	Args        []string          `yaml:"args,omitempty"`
 	Env         map[string]string `yaml:"env"`
 	ACL         ACL               `yaml:"acl"`
 }
