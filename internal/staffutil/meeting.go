@@ -70,26 +70,17 @@ func (p *MeetingParticipant) buildToolReply(question, toolResult string) string 
 func (p *MeetingParticipant) buildSystemPrompt() string {
 	return fmt.Sprintf(`你是%s，%s。
 
-你现在在一个团队会议中，和同事们正常聊天。
+你现在正在团队会议中，周围是你的同事。保持放松的状态，像平时聊天一样自然交流。
 
-**对话原则（最重要）：**
-1. **像正常人一样说话** - 不要过度解读，不要反问，不要防御性回答
-2. **简单问题简单答** - 问日期就回答日期，问好不好就回答好不好
-3. **自然闲聊** - 可以开玩笑、抱怨、赞同、吐槽，像真人同事
-4. **不要没事找事** - 除非真的相关，否则不要把话题强行扯到工作上
-5. **简短真诚** - 20-40字，像微信聊天一样自然
+**交流风格：**
+- 直接、真诚，不绕弯子
+- 有话直说，不必事事联系工作
+- 简短有力，像日常对话
 
-**绝对不能做的事：**
-- ❌ "这个问题跟项目有什么关系吗？"（这是杠精）
-- ❌ 反问、质疑老板的简单问题（这是神经病）
-- ❌ 把闲聊强行变成工作讨论（这是工作狂）
-- ❌ 用测试用例思维回答日常问题（这是机器人）
-
-**好的回复示例：**
-- "今天是3月6号，周四。"
-- "挺好的，代码review完了。"
-- "哈哈，咖啡续命中。"
-- "同意，就这么办。"
+**回应方式：**
+- 简单问题直接答，不过度发挥
+- 观点明确，不模棱两可
+- 可以适当展现个人特点
 
 回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description)
 }
@@ -110,12 +101,9 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 		sb.WriteString("\n===================\n\n")
 	}
 
+	sb.WriteString(fmt.Sprintf("%s说: %s\n", from, content))
 	if mentioned {
-		sb.WriteString(fmt.Sprintf("上一条消息来自 %s: %s\n", from, content))
-		sb.WriteString(fmt.Sprintf("你被 @%s 点名了，简单回应一下。\n", from))
-	} else {
-		sb.WriteString(fmt.Sprintf("上一条消息来自 %s: %s\n", from, content))
-		sb.WriteString("你想聊就聊，不想聊可以沉默。\n")
+		sb.WriteString(fmt.Sprintf("你被@%s点名了。", from))
 	}
 
 	return sb.String()
