@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -135,6 +136,89 @@ func (m *Manager) GetTaskLogCount(taskID string) int {
 // SetMessageCallback 设置消息回调
 func (m *Manager) SetMessageCallback(cb func(staffID, msgType, content string)) {
 	m.msgCallback = cb
+}
+
+// DiscoverStaffs 从目录扫描发现员工
+// 约定：cmd/staff/<role>/ 下必须有可执行文件和 PROFILE.md
+func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
+	var discovered []string
+
+	entries, err := os.ReadDir(staffRootDir)
+	if err != nil {
+		return nil, fmt.Errorf("read staff directory: %w", err)
+	}
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+
+		role := entry.Name()
+		staffDir := filepath.Join(staffRootDir, role)
+
+		// 查找可执行文件 (与目录同名的二进制)
+		binaryPath := filepath.Join(staffDir, role)
+		info, err := os.Stat(binaryPath)
+		if err != nil {
+			// 跳过没有二进制文件的目录
+			continue
+		}
+		if !info.Mode().IsRegular() {
+			continue
+		}
+
+		// 查找 PROFILE.md
+		profilePath := filepath.Join(staffDir, "PROFILE.md")
+		_, err = os.Stat(profilePath)
+		if err != nil {
+			// 跳过没有 PROFILE.md 的目录
+			continue
+		}
+
+		// 从 PROFILE.md 读取 name
+		name := m.extractNameFromProfile(profilePath, role)
+		if name == "" {
+			name = role // 默认使用 role 作为 name
+		}
+
+		// 招聘员工
+		if _, err := m.HireStaff(role, name, binaryPath); err != nil {
+			fmt.Fprintf(os.Stderr, "[Boss] 发现员工 %s 失败: %v\n", role, err)
+			continue
+		}
+
+		discovered = append(discovered, role)
+		fmt.Printf("   👤 %s - %s\n", name, role)
+	}
+
+	return discovered, nil
+}
+
+// extractNameFromProfile 从 PROFILE.md 提取 name 字段
+func (m *Manager) extractNameFromProfile(profilePath, defaultName string) string {
+	data, err := os.ReadFile(profilePath)
+	if err != nil {
+		return defaultName
+	}
+
+	content := string(data)
+	// 简单解析 YAML frontmatter 中的 name 字段
+	lines := strings.Split(content, "\n")
+	inFrontMatter := false
+	for _, line := range lines {
+		if strings.HasPrefix(line, "---") {
+			if inFrontMatter {
+				break // 结束
+			}
+			inFrontMatter = true
+			continue
+		}
+		if inFrontMatter && strings.HasPrefix(line, "name:") {
+			name := strings.TrimSpace(strings.TrimPrefix(line, "name:"))
+			return strings.Trim(name, "\"")
+		}
+	}
+	return defaultName
 }
 
 // HireStaff 招聘员工
