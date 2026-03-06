@@ -3,6 +3,7 @@ package main
 import (
 	"cyberteam/internal/master"
 	"cyberteam/internal/meeting"
+	"cyberteam/internal/profile"
 	"cyberteam/internal/storage"
 	"cyberteam/internal/workflow"
 	"cyberteam/internal/workspace"
@@ -174,6 +175,17 @@ func main() {
 	// 创建 Boss（项目经理）
 	boss := master.NewManager(engine)
 	gBoss = boss // 设置全局变量
+
+	// 加载 Boss Profile
+	bossProfilePath := filepath.Join(rootDir, "cmd/boss/PROFILE.md")
+	if prof, err := profile.Load(bossProfilePath); err == nil {
+		// 只取描述第一行
+		desc := strings.Split(prof.Description, "\n")[0]
+		if len(desc) > 50 {
+			desc = desc[:50] + "..."
+		}
+		fmt.Printf("👤 Boss: %s - %s\n", prof.Name, desc)
+	}
 
 	// 设置 Staff 消息回调
 	boss.SetMessageCallback(func(staffID, msgType, content string) {
