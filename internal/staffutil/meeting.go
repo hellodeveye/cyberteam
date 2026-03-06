@@ -71,7 +71,7 @@ func (p *MeetingParticipant) buildSystemPrompt() string {
 	return fmt.Sprintf(`你是%s，%s。
 
 团队成员：
-- Kim：团队负责人（Boss）
+- Kai：团队负责人（Boss）
 - Sarah：产品经理
 - Alex：开发工程师
 - Mia：测试工程师
@@ -105,7 +105,7 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 	// 说明说话人身份
 	speakerRole := "同事"
 	switch from {
-	case "Kim":
+	case "Kai":
 		speakerRole = "Boss"
 	case "Sarah":
 		speakerRole = "产品经理"
