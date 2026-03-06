@@ -1204,7 +1204,7 @@ func handleMeetingStart(session *Session, args []string) {
 		if meetingID != mtg.ID {
 			return
 		}
-		displayMeetingMessage(msg)
+		displayMeetingMessage(msg, session)
 	})
 
 	fmt.Printf("\n🎤 会议 [%s] 开始\n", mtg.Topic)
@@ -1275,7 +1275,7 @@ func handleMeetingJoin(session *Session, args []string) {
 			start = 0
 		}
 		for _, msg := range mtg.Messages[start:] {
-			displayMeetingMessage(msg)
+			displayMeetingMessage(msg, session)
 		}
 	}
 }
@@ -1469,24 +1469,30 @@ func handleMeetingTranscript(session *Session) {
 	fmt.Println(strings.Repeat("-", 80))
 
 	for _, msg := range mtg.Messages {
-		displayMeetingMessage(msg)
+		displayMeetingMessage(msg, session)
 	}
 }
 
-func displayMeetingMessage(msg meeting.Message) {
+func displayMeetingMessage(msg meeting.Message, session *Session) {
 	timeStr := msg.Timestamp.Format("15:04:05")
 
 	// 获取发送者颜色
 	color := getSenderColor(msg.From)
 	reset := ColorReset
 
+	// 获取提示符前缀
+	prefix := ""
+	if session != nil {
+		prefix = session.GetPrompt()
+	}
+
 	switch msg.Type {
 	case meeting.MsgText:
-		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, reset, msg.Content)
+		fmt.Printf("%s[%s] %s%s%s: %s\n", prefix, timeStr, color, msg.From, reset, msg.Content)
 	case meeting.MsgMention:
-		fmt.Printf("[%s] %s%s%s: %s\n", timeStr, color, msg.From, reset, msg.Content)
+		fmt.Printf("%s[%s] %s%s%s: %s\n", prefix, timeStr, color, msg.From, reset, msg.Content)
 	case meeting.MsgAction:
-		fmt.Printf("[%s] *%s*\n", timeStr, msg.Content)
+		fmt.Printf("%s[%s] *%s*\n", prefix, timeStr, msg.Content)
 	}
 }
 
