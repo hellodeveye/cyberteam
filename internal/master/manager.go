@@ -36,6 +36,17 @@ type Manager struct {
 	// 私聊消息回调
 	privateMsgCallback func(staffName, content string)
 	privateMu          sync.RWMutex
+
+	// MCP 管理器
+	mcpManager MCPManager
+}
+
+// MCPManager MCP 管理器接口
+type MCPManager interface {
+	StartAll() error
+	StopAll()
+	CallToolByName(fullToolName, role string, args map[string]interface{}) (*protocol.MCPCallResult, error)
+	ListTools(role string) []protocol.MCPToolInfo
 }
 
 // LogEntry 日志条目
@@ -295,7 +306,111 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 				callback(proc.Profile.Name, content)
 			}
 		}
+
+	case protocol.MsgMCPCall:
+		// Staff 请求调用 MCP 工具
+		m.handleMCPCall(staffID, msg)
+
+	case protocol.MsgMCPList:
+		// Staff 请求获取可用工具列表
+		m.handleMCPList(staffID, msg)
 	}
+}
+
+// handleMCPCall 处理 MCP 工具调用
+func (m *Manager) handleMCPCall(staffID string, msg protocol.Message) {
+	if m.mcpManager == nil {
+		m.sendMCPError(staffID, "MCP manager not initialized")
+		return
+	}
+
+	// 获取 Staff 信息
+	m.mu.RLock()
+	proc := m.staffs[staffID]
+	m.mu.RUnlock()
+	if proc == nil || proc.Profile == nil {
+		m.sendMCPError(staffID, "staff not found")
+		return
+	}
+
+	role := proc.Profile.Role
+
+	// 解析请求
+	tool, _ := msg.Payload["tool"].(string)
+	args, _ := msg.Payload["args"].(map[string]interface{})
+
+	// 调用 MCP 工具
+	result, err := m.mcpManager.CallToolByName(tool, role, args)
+	if err != nil {
+		m.sendMCPError(staffID, err.Error())
+		return
+	}
+
+	// 返回结果
+	resp := protocol.Message{
+		Type: protocol.MsgMCPResult,
+		ID:   msg.ID,
+		Payload: map[string]interface{}{
+			"success": result.Success,
+			"result":  result.Result,
+			"error":   result.Error,
+		},
+	}
+	m.sendToStaff(staffID, resp)
+}
+
+// handleMCPList 处理获取工具列表请求
+func (m *Manager) handleMCPList(staffID string, msg protocol.Message) {
+	if m.mcpManager == nil {
+		m.sendMCPError(staffID, "MCP manager not initialized")
+		return
+	}
+
+	// 获取 Staff 信息
+	m.mu.RLock()
+	proc := m.staffs[staffID]
+	m.mu.RUnlock()
+	if proc == nil || proc.Profile == nil {
+		m.sendMCPError(staffID, "staff not found")
+		return
+	}
+
+	role := proc.Profile.Role
+	tools := m.mcpManager.ListTools(role)
+
+	// 返回工具列表
+	resp := protocol.Message{
+		Type: protocol.MsgMCPResult,
+		ID:   msg.ID,
+		Payload: map[string]interface{}{
+			"tools": tools,
+		},
+	}
+	m.sendToStaff(staffID, resp)
+}
+
+// sendMCPError 发送 MCP 错误响应
+func (m *Manager) sendMCPError(staffID string, errMsg string) {
+	resp := protocol.Message{
+		Type: protocol.MsgMCPError,
+		Payload: map[string]interface{}{
+			"error": errMsg,
+		},
+	}
+	m.sendToStaff(staffID, resp)
+}
+
+// sendToStaff 发送消息给指定 Staff
+func (m *Manager) sendToStaff(staffID string, msg protocol.Message) {
+	m.mu.RLock()
+	proc := m.staffs[staffID]
+	m.mu.RUnlock()
+	if proc == nil {
+		return
+	}
+
+	data, _ := json.Marshal(msg)
+	fmt.Fprintln(proc.Stdin, string(data))
 }
 
 // SendMeetingMessage 发送会议消息给 Staff（Boss 主动调用）
@@ -797,6 +912,16 @@ func (m *Manager) IsStaffOnline(role string) bool {
 		}
 	}
 	return false
+}
+
+// SetMCPManager 设置 MCP 管理器
+func (m *Manager) SetMCPManager(manager MCPManager) {
+	m.mcpManager = manager
+}
+
+// GetMCPManager 获取 MCP 管理器
+func (m *Manager) GetMCPManager() MCPManager {
+	return m.mcpManager
 }
 
 // SendPrivateMessage 发送私聊消息给指定角色的员工

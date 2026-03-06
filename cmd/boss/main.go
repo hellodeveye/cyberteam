@@ -2,6 +2,7 @@ package main
 
 import (
 	"cyberteam/internal/master"
+	"cyberteam/internal/mcp"
 	"cyberteam/internal/meeting"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/storage"
@@ -24,6 +25,7 @@ import (
 var gWsManager *workspace.Manager
 var gBoss *master.Manager
 var gMeetingRoom *meeting.Room
+var gMCPManager *mcp.Manager
 
 // Session 当前会话状态
 type Session struct {
@@ -313,6 +315,25 @@ func main() {
 	meetingDir := filepath.Join(rootDir, "meetings")
 	gMeetingRoom = meeting.NewRoom(meetingDir)
 	fmt.Println("✅ 会议室就绪！")
+
+	// 初始化 MCP 管理器
+	mcpConfigPath := filepath.Join(rootDir, "config", "mcp.yaml")
+	mcpManager, err := mcp.NewManager(mcpConfigPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "⚠️ MCP 配置加载失败: %v\n", err)
+	} else {
+		boss.SetMCPManager(mcpManager)
+		if err := mcpManager.StartAll(); err != nil {
+			fmt.Fprintf(os.Stderr, "⚠️ MCP 启动失败: %v\n", err)
+		} else {
+			fmt.Println("✅ MCP 工具就绪！")
+			// 显示可用工具
+			for name, status := range mcpManager.GetServerStatus() {
+				fmt.Printf("   - %s: %s\n", name, status)
+			}
+		}
+		gMCPManager = mcpManager
+	}
 
 	// 设置事件监听（需要在 boss 创建后）
 	setupEventListeners(engine, msgQueue, session, wsManager, boss)

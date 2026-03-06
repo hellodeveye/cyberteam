@@ -16,6 +16,7 @@ type MeetingParticipant struct {
 	Profile   *profile.Profile
 	LLMClient llm.Client
 	Model     string
+	MCPClient *MCPClient // MCP 客户端
 }
 
 // NewMeetingParticipant 创建会议参与者
@@ -31,10 +32,16 @@ func NewMeetingParticipant(role, name string, profile *profile.Profile, llmClien
 
 // GenerateReply 生成会议回复（支持自动工具执行）
 func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, content string, mentioned bool) string {
-	// 先尝试自动执行工具（如果是技术问题）
+	// 先尝试使用 MCP 工具（如果可用）
+	if p.MCPClient != nil && mentioned {
+		if toolResult, executed := p.tryMCPCall(content); executed {
+			return p.buildToolReply(content, toolResult)
+		}
+	}
+
+	// 回退到本地 bash 工具
 	if mentioned && (p.Role == "developer" || p.Role == "tester") {
 		if toolResult, executed := p.AutoExecuteTool(content, "/tmp"); executed {
-			// 工具执行成功，构建带工具结果的回复
 			return p.buildToolReply(content, toolResult)
 		}
 	}
@@ -218,4 +225,62 @@ func (p *MeetingParticipant) fallbackReply(mentioned bool) string {
 		return "测试覆盖没问题，可以考虑。"
 	}
 	return replies[0]
+}
+
+// tryMCPCall 尝试使用 MCP 工具
+func (p *MeetingParticipant) tryMCPCall(question string) (string, bool) {
+	if p.MCPClient == nil {
+		return "", false
+	}
+
+	q := strings.ToLower(question)
+
+	// 匹配 GitHub 查询
+	if matched, _ := regexp.MatchString(`(github|开源|仓库|repo)`, q); matched {
+		// 提取查询关键词
+		keywords := extractKeywords(question)
+		if keywords != "" {
+			result, err := p.MCPClient.CallTool("github:search_repositories", map[string]interface{}{
+				"query": keywords,
+			})
+			if err == nil && result != "" {
+				return result, true
+			}
+		}
+	}
+
+	// 匹配网页抓取
+	if matched, _ := regexp.MatchString(`(网站|官网|网页|文档|doc)`, q); matched {
+		url := extractURL(question)
+		if url != "" {
+			result, err := p.MCPClient.CallTool("fetch:fetch_url", map[string]interface{}{
+				"url": url,
+			})
+			if err == nil && result != "" {
+				return result, true
+			}
+		}
+	}
+
+	return "", false
+}
+
+// extractKeywords 提取查询关键词
+func extractKeywords(text string) string {
+	// 简单实现：去掉常见词，返回剩余内容
+	words := []string{"github", "开源", "仓库", "repo", "查", "找", "下", "一下"}
+	result := text
+	for _, w := range words {
+		result = strings.ReplaceAll(result, w, "")
+	}
+	return strings.TrimSpace(result)
+}
+
+// extractURL 从文本提取 URL
+func extractURL(text string) string {
+	urlRegex := regexp.MustCompile(`(https?://[^\s]+)`)
+	if matches := urlRegex.FindStringSubmatch(text); len(matches) > 0 {
+		return matches[0]
+	}
+	return ""
 }

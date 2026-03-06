@@ -1,0 +1,62 @@
+version: "1.0"
+description: "CyberTeam MCP 工具配置"
+
+# 全局设置
+settings:
+  timeout: 30s
+  max_concurrent: 10
+  logging: true
+
+# MCP Server 定义
+servers:
+  github:
+    enabled: true
+    description: "GitHub 代码仓库查询"
+    command: "npx -y @modelcontextprotocol/server-github"
+    env:
+      GITHUB_PERSONAL_ACCESS_TOKEN: "${GITHUB_TOKEN}"
+    acl:
+      roles: [developer, product]
+      allowed_tools:
+        - search_repositories
+        - get_file_contents
+        - get_issue
+        - list_commits
+        - search_code
+      denied_tools:
+        - create_repository
+        - delete_issue
+        - delete_repository
+
+  fetch:
+    enabled: true
+    description: "网页抓取工具"
+    command: "uvx mcp-server-fetch"
+    acl:
+      roles: [developer, product, tester]
+      allowed_tools:
+        - fetch_url
+        - fetch_html
+
+  slack:
+    enabled: false
+    description: "Slack 通知"
+    command: "npx -y @modelcontextprotocol/server-slack"
+    env:
+      SLACK_BOT_TOKEN: "${SLACK_TOKEN}"
+      SLACK_TEAM_ID: "${SLACK_TEAM_ID}"
+    acl:
+      roles: [product]
+      allowed_tools:
+        - post_message
+
+  postgres:
+    enabled: false
+    description: "PostgreSQL 数据库查询"
+    command: "npx -y @modelcontextprotocol/server-postgres"
+    env:
+      DATABASE_URL: "${DATABASE_URL}"
+    acl:
+      roles: [developer, tester]
+      allowed_tools:
+        - query
