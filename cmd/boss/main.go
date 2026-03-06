@@ -176,17 +176,14 @@ func main() {
 
 	// 设置 Staff 消息回调
 	boss.SetMessageCallback(func(staffID, msgType, content string) {
-		// 统一添加时间戳前缀
-		timeStr := time.Now().Format("15:04:05")
-
 		if msgType == "meeting_reply" {
-			// 会议回复直接显示（Staff 的发言），添加颜色和时间戳
+			// 会议回复直接显示（Staff 的发言），添加颜色
 			coloredContent := colorizeMeetingReply(content)
-			msgQueue.Push(fmt.Sprintf("[%s] %s", timeStr, coloredContent))
+			msgQueue.Push(coloredContent)
 		} else {
 			// 普通消息也添加颜色
 			coloredContent := colorizeStaffMessage(staffID, content)
-			msgQueue.Push(fmt.Sprintf("[%s] %s", timeStr, coloredContent))
+			msgQueue.Push(coloredContent)
 		}
 	})
 
@@ -256,9 +253,20 @@ func main() {
 			msgs := msgQueue.PopAll()
 			for _, msg := range msgs {
 				fmt.Printf("\r%-80s\n", "")
-				// 添加提示符前缀，保持对齐
-				prompt := session.GetPrompt()
-				fmt.Printf("%s%s\n", prompt, msg)
+				// 使用简洁格式，时间右对齐灰色显示
+				timeStr := time.Now().Format("15:04:05")
+				meetingName := ""
+				if session.GetMeeting() != nil {
+					meetingName = session.GetMeeting().Topic
+				}
+				// 格式: [会议名] 消息内容 ... 时间(灰色)
+				const totalWidth = 80
+				lineLen := len(meetingName) + 4 + len(msg)
+				spaces := totalWidth - lineLen - len(timeStr)
+				if spaces < 1 {
+					spaces = 1
+				}
+				fmt.Printf("[%s] %s%s%s%s%s\n", meetingName, msg, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
 				rl.Refresh()
 			}
 		}
@@ -1480,19 +1488,32 @@ func displayMeetingMessage(msg meeting.Message, session *Session) {
 	color := getSenderColor(msg.From)
 	reset := ColorReset
 
-	// 获取提示符前缀
-	prefix := ""
-	if session != nil {
-		prefix = session.GetPrompt()
+	// 获取会议名前缀
+	meetingName := ""
+	if session != nil && session.GetMeeting() != nil {
+		meetingName = session.GetMeeting().Topic
 	}
 
+	// 总宽度（终端宽度减去一些边距）
+	const totalWidth = 80
+
 	switch msg.Type {
-	case meeting.MsgText:
-		fmt.Printf("%s[%s] %s%s%s: %s\n", prefix, timeStr, color, msg.From, reset, msg.Content)
-	case meeting.MsgMention:
-		fmt.Printf("%s[%s] %s%s%s: %s\n", prefix, timeStr, color, msg.From, reset, msg.Content)
+	case meeting.MsgText, meeting.MsgMention:
+		// 格式: [会议名] 名字: 内容 ... 时间(灰色右对齐)
+		prefix := fmt.Sprintf("[%s] %s%s%s: ", meetingName, color, msg.From, reset)
+		content := msg.Content
+		if len(content) > 50 {
+			content = content[:50] + "..."
+		}
+		// 计算剩余空间给时间
+		lineLen := len(meetingName) + 4 + len(msg.From) + 2 + len(content)
+		spaces := totalWidth - lineLen - len(timeStr)
+		if spaces < 1 {
+			spaces = 1
+		}
+		fmt.Printf("%s%s%s%s%s%s\n", prefix, content, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
 	case meeting.MsgAction:
-		fmt.Printf("%s[%s] *%s*\n", prefix, timeStr, msg.Content)
+		fmt.Printf("[%s] *%s* %s%s%s\n", meetingName, msg.Content, ColorGray, timeStr, ColorReset)
 	}
 }
 
@@ -1522,6 +1543,7 @@ const (
 	ColorPurple = "\033[35m"
 	ColorCyan   = "\033[36m"
 	ColorWhite  = "\033[37m"
+	ColorGray   = "\033[90m" // 灰色
 	ColorBold   = "\033[1m"
 )
 
