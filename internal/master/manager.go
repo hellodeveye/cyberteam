@@ -188,10 +188,6 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 			m.mu.Unlock()
 
 			m.registry.Register(&profile)
-			content := fmt.Sprintf("✅ %s 入职: %s (%s)", getRoleIcon(profile.Role), profile.Name, profile.Role)
-			if m.msgCallback != nil {
-				m.msgCallback(staffID, string(msg.Type), content)
-			}
 		}
 
 	case protocol.MsgHeartbeat:

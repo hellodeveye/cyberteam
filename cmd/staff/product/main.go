@@ -46,7 +46,6 @@ func main() {
 	var llmClient llm.Client
 	if *apiKey != "" {
 		llmClient = llm.NewOpenAIClient(*apiKey, *baseURL)
-		fmt.Fprintf(os.Stderr, "[%s] 已连接到 LLM: %s\n", *name, *model)
 	} else {
 		llmClient = &llm.MockClient{
 			Responses: []string{
@@ -56,18 +55,15 @@ func main() {
 				"需求很清晰，我这边没有疑问，可以进入设计阶段。",
 			},
 		}
-		fmt.Fprintf(os.Stderr, "[%s] 使用模拟模式（设置 OPENAI_API_KEY 启用真实 LLM）\n", *name)
 	}
 
 	// 加载 Profile
 	var prof *profile.Profile
 	if p, err := profile.Load(profilePath); err == nil {
 		prof = p
-		fmt.Fprintf(os.Stderr, "[%s] 已加载 PROFILE.md\n", *name)
 	} else {
 		// Fallback: 使用默认值
 		prof = getDefaultProfile()
-		fmt.Fprintf(os.Stderr, "[%s] 使用默认 Profile (%v)\n", *name, err)
 	}
 
 	profileData := &protocol.WorkerProfile{
