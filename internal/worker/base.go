@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"sync"
 	"time"
 
 	"cyberteam/internal/protocol"
@@ -25,16 +26,21 @@ type BaseWorker struct {
 	stdin  io.Reader
 	stdout io.Writer
 	stderr io.Writer
+
+	// MCP 调用等待通道
+	mcpPending map[string]chan *protocol.Message
+	mcpMu      sync.RWMutex
 }
 
 // NewBaseWorker 创建员工
 func NewBaseWorker(profile *protocol.WorkerProfile, handler Handler) *BaseWorker {
 	return &BaseWorker{
-		Profile: profile,
-		Handler: handler,
-		stdin:   os.Stdin,
-		stdout:  os.Stdout,
-		stderr:  os.Stderr,
+		Profile:    profile,
+		Handler:    handler,
+		stdin:      os.Stdin,
+		stdout:     os.Stdout,
+		stderr:     os.Stderr,
+		mcpPending: make(map[string]chan *protocol.Message),
 	}
 }
 
@@ -93,6 +99,9 @@ func (w *BaseWorker) handleMessage(msg protocol.Message) error {
 		return w.handleMeetingMessage(msg)
 	case protocol.MsgPrivate:
 		return w.handlePrivateMessage(msg)
+	case protocol.MsgMCPResult:
+		w.handleMCPResult(msg)
+		return nil
 	}
 	return nil
 }
@@ -176,6 +185,52 @@ func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
 			"content": reply,
 		},
 	})
+}
+
+// CallMCP 同步调用 MCP 工具
+func (w *BaseWorker) CallMCP(msg protocol.Message) (*protocol.Message, error) {
+	reqID := generateID()
+	req := protocol.Message{
+		Type: protocol.MsgMCPCall,
+		ID:   reqID,
+		Payload: msg.Payload,
+	}
+
+	// 创建等待通道
+	respChan := make(chan *protocol.Message, 1)
+	w.mcpMu.Lock()
+	w.mcpPending[reqID] = respChan
+	w.mcpMu.Unlock()
+
+	defer func() {
+		w.mcpMu.Lock()
+		delete(w.mcpPending, reqID)
+		w.mcpMu.Unlock()
+	}()
+
+	// 发送请求
+	if err := w.send(req); err != nil {
+		return nil, err
+	}
+
+	// 等待响应
+	select {
+	case resp := <-respChan:
+		return resp, nil
+	case <-time.After(30 * time.Second):
+		return nil, fmt.Errorf("mcp call timeout")
+	}
+}
+
+// handleMCPResult 处理 MCP 调用结果
+func (w *BaseWorker) handleMCPResult(msg protocol.Message) {
+	w.mcpMu.RLock()
+	ch, ok := w.mcpPending[msg.ID]
+	w.mcpMu.RUnlock()
+
+	if ok {
+		ch <- &msg
+	}
 }
 
 // handleAssign 处理任务分配
