@@ -256,7 +256,9 @@ func main() {
 			msgs := msgQueue.PopAll()
 			for _, msg := range msgs {
 				fmt.Printf("\r%-80s\n", "")
-				fmt.Println(msg)
+				// 添加提示符前缀，保持对齐
+				prompt := session.GetPrompt()
+				fmt.Printf("%s%s\n", prompt, msg)
 				rl.Refresh()
 			}
 		}
