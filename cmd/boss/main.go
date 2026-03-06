@@ -69,8 +69,9 @@ func (s *Session) InMeeting() bool {
 func (s *Session) GetPrompt() string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	// 会议模式下简化提示符
 	if s.currentMeeting != nil {
-		return fmt.Sprintf("🎤 [🗣️ %s] > ", s.currentMeeting.Topic)
+		return "🎤 > "
 	}
 	if s.currentProject == nil {
 		return "🎤 > "
@@ -255,18 +256,14 @@ func main() {
 				fmt.Printf("\r%-80s\n", "")
 				// 使用简洁格式，时间右对齐灰色显示
 				timeStr := time.Now().Format("15:04:05")
-				meetingName := ""
-				if session.GetMeeting() != nil {
-					meetingName = session.GetMeeting().Topic
-				}
-				// 格式: [会议名] 消息内容 ... 时间(灰色)
+				// 格式: 消息内容 ... 时间(灰色)
 				const totalWidth = 80
-				lineLen := len(meetingName) + 4 + len(msg)
+				lineLen := len(msg)
 				spaces := totalWidth - lineLen - len(timeStr)
 				if spaces < 1 {
 					spaces = 1
 				}
-				fmt.Printf("[%s] %s%s%s%s%s\n", meetingName, msg, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
+				fmt.Printf("%s%s%s%s%s\n", msg, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
 				rl.Refresh()
 			}
 		}
@@ -1212,6 +1209,10 @@ func handleMeetingStart(session *Session, args []string) {
 		if meetingID != mtg.ID {
 			return
 		}
+		// 不显示 Boss 自己的消息（避免重复）
+		if msg.From == "boss" {
+			return
+		}
 		displayMeetingMessage(msg, session)
 	})
 
@@ -1482,38 +1483,37 @@ func handleMeetingTranscript(session *Session) {
 }
 
 func displayMeetingMessage(msg meeting.Message, session *Session) {
+	// 不显示 Boss 自己的消息（避免重复）
+	if msg.From == "boss" {
+		return
+	}
+
 	timeStr := msg.Timestamp.Format("15:04:05")
 
 	// 获取发送者颜色
 	color := getSenderColor(msg.From)
 	reset := ColorReset
 
-	// 获取会议名前缀
-	meetingName := ""
-	if session != nil && session.GetMeeting() != nil {
-		meetingName = session.GetMeeting().Topic
-	}
-
 	// 总宽度（终端宽度减去一些边距）
 	const totalWidth = 80
 
 	switch msg.Type {
 	case meeting.MsgText, meeting.MsgMention:
-		// 格式: [会议名] 名字: 内容 ... 时间(灰色右对齐)
-		prefix := fmt.Sprintf("[%s] %s%s%s: ", meetingName, color, msg.From, reset)
+		// 格式: 名字: 内容 ... 时间(灰色右对齐)
+		prefix := fmt.Sprintf("%s%s%s: ", color, msg.From, reset)
 		content := msg.Content
 		if len(content) > 50 {
 			content = content[:50] + "..."
 		}
 		// 计算剩余空间给时间
-		lineLen := len(meetingName) + 4 + len(msg.From) + 2 + len(content)
+		lineLen := len(msg.From) + 2 + len(content)
 		spaces := totalWidth - lineLen - len(timeStr)
 		if spaces < 1 {
 			spaces = 1
 		}
 		fmt.Printf("%s%s%s%s%s%s\n", prefix, content, strings.Repeat(" ", spaces), ColorGray, timeStr, ColorReset)
 	case meeting.MsgAction:
-		fmt.Printf("[%s] *%s* %s%s%s\n", meetingName, msg.Content, ColorGray, timeStr, ColorReset)
+		fmt.Printf("*%s* %s%s%s\n", msg.Content, ColorGray, timeStr, ColorReset)
 	}
 }
 
