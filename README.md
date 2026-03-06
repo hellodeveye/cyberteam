@@ -12,6 +12,7 @@
 - **持久化存储**：项目产物保存到文件系统，重启不丢失
 - **LLM 驱动**：每个员工都是独立的 LLM Agent，使用 DeepSeek API
 - **独立进程**：每个角色是独立的可执行文件，支持异构实现
+- **MCP 工具集成**：支持 Model Context Protocol，可调用外部工具（GitHub、网页抓取等）
 
 ## 架构设计
 
@@ -69,11 +70,50 @@ go mod tidy
 默认使用模拟模式。要启用真实 DeepSeek LLM：
 
 ```bash
+# 方式1：使用 DeepSeek 环境变量
 export DEEPSEEK_API_KEY=your-api-key
-export DEEPSEEK_MODEL=deepseek-chat
+export DEEPSEEK_MODEL=deepseek-reasoner
+
+# 方式2：使用 OpenAI 兼容环境变量
+export OPENAI_API_KEY=your-api-key
+export OPENAI_BASE_URL=https://api.deepseek.com/v1
+export OPENAI_MODEL=deepseek-reasoner
 ```
 
-### 3. 编译运行
+### 3. 配置 MCP 工具（可选）
+
+MCP (Model Context Protocol) 允许 Staff 调用外部工具：
+
+```bash
+# 配置 Firecrawl（网页抓取）
+export FIRECRAWL_API_KEY=your-firecrawl-key
+
+# 配置 GitHub
+export GITHUB_TOKEN=ghp_xxxxxxxxxxxx
+
+# 配置 Slack
+export SLACK_TOKEN=xoxb-xxxxxxxxxxxx
+export SLACK_TEAM_ID=Txxxxxxxx
+
+# 配置 PostgreSQL
+export DATABASE_URL=postgresql://user:pass@localhost/db
+```
+
+编辑 `config/mcp.yaml` 启用需要的工具：
+
+```yaml
+servers:
+  fetch:
+    enabled: true  # 无需配置，开箱即用
+  
+  firecrawl:
+    enabled: true  # 需要 FIRECRAWL_API_KEY
+  
+  github:
+    enabled: false  # 需要 GITHUB_TOKEN
+```
+
+### 4. 编译运行
 
 ```bash
 # 使用 Task（推荐）
@@ -121,6 +161,7 @@ go build -o cmd/staff/tester/tester ./cmd/staff/tester
 **智能特性：**
 - **上下文记忆** - Staff 知道之前说了什么
 - **自动工具执行** - 问"磁盘空间够吗"自动执行 `df -h`
+- **MCP 工具调用** - 需要外部数据时自动调用 GitHub、网页抓取等工具
 - **彩色区分** - 不同角色不同颜色（产品绿/开发蓝/测试黄/Boss紫）
 - **右对齐时间** - 灰色时间戳，不干扰阅读
 
@@ -206,6 +247,44 @@ go build -o cmd/staff/tester/tester ./cmd/staff/tester
 🎤 [BlogSystem] > show prd     ← 查看 PRD 内容
 🎤 [BlogSystem] > show code    ← 查看代码
 ```
+
+### MCP 工具使用
+
+Staff 可以在会议或私聊中自动调用 MCP 工具获取外部数据：
+
+```bash
+# 查看 MCP 工具状态
+🎤 > mcp
+🛠️ MCP 工具状态:
+----------------------------------------
+  ✅ fetch: ready
+  ✅ firecrawl: ready
+  ❌ github: not ready  # 缺少 Token
+
+# 在会议中使用（自动触发）
+🎤 > meeting start 技术调研
+🎤 > @Alex 查一下 Gin 框架的 GitHub 仓库
+Alex: 让我查一下...
+     [TOOL:github:search_repositories]{"query":"gin golang"}
+     [工具查询结果]
+     gin-gonic/gin: 78k stars, HTTP web framework...
+
+🎤 > @Sarah 抓取这个网页看看
+Sarah: 我来抓取...
+      [TOOL:fetch:fetch_url]{"url":"https://example.com"}
+      [工具查询结果]
+      网页标题: Example Domain...
+```
+
+**支持的 MCP 工具：**
+
+| 工具 | 功能 | 需要配置 |
+|-----|------|---------|
+| `fetch` | 网页抓取 | 无需配置 |
+| `firecrawl` | 高级网页抓取 | `FIRECRAWL_API_KEY` |
+| `github` | GitHub API | `GITHUB_TOKEN` |
+| `slack` | Slack 通知 | `SLACK_TOKEN` |
+| `postgres` | 数据库查询 | `DATABASE_URL` |
 
 ## 工作流阶段
 
@@ -325,10 +404,22 @@ tools:
 禁止: ../ 目录遍历攻击
 ```
 
-### 2. 命令白名单
+### 2. 命令白名单与净化
 ```go
+// 完全禁止危险的 shell 元字符
+dangerous := []string{";", "|", "&", ">", "<", "`", "$", "(", ")", "{", "}", ...}
+
 允许: go, python, git, mkdir, cat, ls, gofmt...
 禁止: sudo, su, ssh, rm -rf /, mkfs, dd...
+```
+
+### 3. 路径遍历防护
+```go
+// 使用 filepath.Base 提取纯文件名
+filename = filepath.Base(filename)
+if filename == "" || filename == "." {
+    return fmt.Errorf("invalid filename")
+}
 ```
 
 ### 3. 审计日志
@@ -484,7 +575,15 @@ task check              # 完整检查
 | 变量 | 说明 | 默认值 |
 |-----|------|-------|
 | `DEEPSEEK_API_KEY` | DeepSeek API Key | -（模拟模式） |
-| `DEEPSEEK_MODEL` | 模型名称 | deepseek-chat |
+| `DEEPSEEK_MODEL` | 模型名称 | deepseek-reasoner |
+| `OPENAI_API_KEY` | OpenAI 兼容 API Key | - |
+| `OPENAI_BASE_URL` | API 基础 URL | https://api.openai.com/v1 |
+| `OPENAI_MODEL` | 模型名称 | - |
+| `FIRECRAWL_API_KEY` | Firecrawl API Key | - |
+| `GITHUB_TOKEN` | GitHub Personal Access Token | - |
+| `SLACK_TOKEN` | Slack Bot Token | - |
+| `SLACK_TEAM_ID` | Slack Team ID | - |
+| `DATABASE_URL` | PostgreSQL 连接字符串 | - |
 
 ### PROFILE.md 配置
 
