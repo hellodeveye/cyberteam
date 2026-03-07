@@ -97,10 +97,11 @@ func GetStatusIcon(status workflow.Status) string {
 	return "❓"
 }
 
-// Truncate 截断字符串
+// Truncate 截断字符串（按 Unicode 字符数，安全处理中文）
 func Truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	runes := []rune(s)
+	if len(runes) <= maxLen {
 		return s
 	}
-	return s[:maxLen-3] + "..."
+	return string(runes[:maxLen-3]) + "..."
 }

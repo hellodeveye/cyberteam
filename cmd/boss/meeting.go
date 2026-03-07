@@ -158,75 +158,6 @@ func handleMeetingJoin(sess *session.Session, args []string) {
 	}
 }
 
-func handleMeetingSay(sess *session.Session, args []string) {
-	mtg := sess.GetMeeting()
-	if mtg == nil {
-		fmt.Println("❌ 当前不在会议中，使用 'meeting start <topic>' 开始")
-		return
-	}
-
-	content := strings.Join(args, " ")
-	if content == "" {
-		fmt.Println("❌ 发言内容不能为空")
-		return
-	}
-
-	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgText, content)
-	if err != nil {
-		fmt.Printf("❌ 发送失败: %v\n", err)
-		return
-	}
-
-	// 检查是否 @ 了某人，并发送消息给对应的 Staff
-	mentioned := extractMentions(content)
-	transcript := mtg.GetTranscript()
-	if len(mentioned) > 0 {
-		for _, role := range mentioned {
-			go gBoss.SendMeetingMessage(role, mtg.ID, "boss", content, true, transcript)
-		}
-	} else {
-		// 自由模式下，随机选择 1-2 人回复（避免太吵）
-		transcript := mtg.GetTranscript()
-		go gBoss.BroadcastMeetingMessageRandom(mtg.ID, "boss", content, 2, transcript)
-	}
-}
-
-func handleMeetingAsk(sess *session.Session, args []string) {
-	mtg := sess.GetMeeting()
-	if mtg == nil {
-		fmt.Println("❌ 当前不在会议中")
-		return
-	}
-
-	if len(args) < 2 {
-		fmt.Println("❌ 用法: ask <staff> <question>")
-		return
-	}
-
-	staff := args[0]
-	question := strings.Join(args[1:], " ")
-
-	content := fmt.Sprintf("@%s %s", staff, question)
-	_, err := gMeetingRoom.AddMessage(mtg.ID, "boss", meeting.MsgMention, content)
-	if err != nil {
-		fmt.Printf("❌ 发送失败: %v\n", err)
-		return
-	}
-
-	// 将名字转换为 role
-	staffRole := staff
-	if role, ok := nameToRole[staff]; ok {
-		staffRole = role
-	}
-
-	// 获取会议历史
-	transcript := mtg.GetTranscript()
-
-	// 发送消息给指定的 Staff
-	go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", question, true, transcript)
-	fmt.Printf("🎯 已向 @%s 提问\n", staff)
-}
-
 // handleDirectSay 直接自由发言（方案 C）
 func handleDirectSay(sess *session.Session, content string) {
 	mtg := sess.GetMeeting()
@@ -253,13 +184,6 @@ func handleDirectSay(sess *session.Session, content string) {
 func handleDirectMention(sess *session.Session, line string) {
 	mtg := sess.GetMeeting()
 	if mtg == nil {
-		return
-	}
-
-	// 解析 @名字 内容
-	// 格式: @Alex 内容 或 @Alex @Sarah 内容
-	parts := strings.SplitN(line[1:], " ", 2) // 去掉开头的@
-	if len(parts) < 1 {
 		return
 	}
 

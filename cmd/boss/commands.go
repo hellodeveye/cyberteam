@@ -407,17 +407,21 @@ func handleWatch(engine *workflow.Engine, sess *session.Session, parts []string)
 		return
 	}
 
-	// 解析选项
+	// 解析选项：parts[2] 是未拆分的尾部，需要 Fields 重新分词
 	follow := false
 	limit := 50
 
-	for i := 2; i < len(parts); i++ {
-		switch parts[i] {
+	var flagArgs []string
+	if len(parts) > 2 {
+		flagArgs = strings.Fields(parts[2])
+	}
+	for i := 0; i < len(flagArgs); i++ {
+		switch flagArgs[i] {
 		case "-f", "--follow":
 			follow = true
 		case "-n":
-			if i+1 < len(parts) {
-				if n, err := strconv.Atoi(parts[i+1]); err == nil && n > 0 {
+			if i+1 < len(flagArgs) {
+				if n, err := strconv.Atoi(flagArgs[i+1]); err == nil && n > 0 {
 					limit = n
 					i++
 				}
@@ -458,7 +462,7 @@ func handleWatch(engine *workflow.Engine, sess *session.Session, parts []string)
 
 			// 检查任务是否完成
 			task = engine.GetTask(taskID)
-			if task.Status == workflow.StatusCompleted || task.Status == workflow.StatusFailed {
+			if task == nil || task.Status == workflow.StatusCompleted || task.Status == workflow.StatusFailed {
 				fmt.Println()
 				fmt.Printf("🏁 任务已%s\n", map[workflow.Status]string{
 					workflow.StatusCompleted: "完成",
@@ -650,6 +654,10 @@ func handleApprove(engine *workflow.Engine, sess *session.Session, parts []strin
 		return
 	}
 	task := engine.GetTask(taskID)
+	if task == nil {
+		fmt.Println("❌ 任务不存在")
+		return
+	}
 
 	engine.CompleteTask(taskID, task.Output)
 	fmt.Printf("✅ 已批准任务: %s\n", taskID[:12])

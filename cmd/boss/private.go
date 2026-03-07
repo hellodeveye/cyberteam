@@ -70,7 +70,7 @@ func handlePrivateMessage(sess *session.Session, content string) {
 	}
 
 	// 添加消息到历史
-	sess.AddPrivateChatMessage("Kai", content)
+	sess.AddPrivateChatMessage(bossName, content)
 
 	// 获取历史记录
 	history := sess.GetPrivateChatHistory()
@@ -79,5 +79,5 @@ func handlePrivateMessage(sess *session.Session, content string) {
 	go gBoss.SendPrivateMessage(role, "boss", content, history)
 
 	// 本地显示
-	fmt.Printf("%sKai%s: %s\n", ColorPurple, ColorReset, content)
+	fmt.Printf("%s%s%s: %s\n", ColorPurple, bossName, ColorReset, content)
 }

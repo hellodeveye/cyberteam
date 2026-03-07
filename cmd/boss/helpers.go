@@ -6,6 +6,9 @@ import (
 	"strings"
 )
 
+// bossName Boss 的名字
+const bossName = "Kai"
+
 // ANSI 颜色代码
 const (
 	ColorReset  = "\033[0m"

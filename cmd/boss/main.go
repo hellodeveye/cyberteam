@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 
-	"cyberteam/internal/common"
 	"cyberteam/internal/master"
 	"cyberteam/internal/mcp"
 	"cyberteam/internal/meeting"
@@ -241,32 +240,3 @@ func main() {
 	}
 }
 
-// getStageName is an alias for common.GetStageName for backward compatibility
-func getStageName(stage workflow.Stage) string {
-	return common.GetStageName(stage)
-}
-
-// getStageNumber is an alias for common.GetStageNumber for backward compatibility
-func getStageNumber(stage workflow.Stage) int {
-	return common.GetStageNumber(stage)
-}
-
-// getStageDirName is an alias for common.GetStageDirName for backward compatibility
-func getStageDirName(stageNum int) string {
-	return common.GetStageDirName(stageNum)
-}
-
-// getStatusIcon is an alias for common.GetStatusIcon for backward compatibility
-func getStatusIcon(status workflow.Status) string {
-	return common.GetStatusIcon(status)
-}
-
-// truncate is an alias for common.Truncate for backward compatibility
-func truncate(s string, maxLen int) string {
-	return common.Truncate(s, maxLen)
-}
-
-// getRoleForStage is an alias for common.GetRoleForStage for backward compatibility
-func getRoleForStage(stage workflow.Stage) string {
-	return common.GetRoleForStage(stage)
-}
