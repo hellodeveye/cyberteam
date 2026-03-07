@@ -1,5 +1,7 @@
 # Binaries
 bin/
+boss
+cmd/boss/boss
 cmd/staff/product/product
 cmd/staff/developer/developer
 cmd/staff/tester/tester
