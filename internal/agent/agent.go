@@ -106,11 +106,12 @@ func (a *Agent) Execute(userPrompt string) string {
 	// Add messages from memory
 	messages = append(messages, a.memory.GetMessages()...)
 
-	// Add current user message
+	// Add current user message and save to memory
 	messages = append(messages, llm.Message{
 		Role:    "user",
 		Content: userPrompt,
 	})
+	a.memory.AddMessage("user", userPrompt)
 
 	// Execute tool calling loop
 	return a.executeToolLoop(messages)
@@ -127,26 +128,32 @@ func (a *Agent) ExecuteWithContext(transcript, currentMessage string) string {
 	// 从 Memory 加载历史对话
 	messages = append(messages, a.memory.GetMessages()...)
 
-	// Parse and add transcript
+	// Parse and add transcript, distinguishing self vs others
 	if transcript != "" {
 		lines := strings.Split(transcript, "\n")
 		for _, line := range lines {
 			if strings.HasPrefix(line, "Boss:") || strings.HasPrefix(line, "Kai:") ||
 				strings.HasPrefix(line, "Sarah:") || strings.HasPrefix(line, "Alex:") ||
 				strings.HasPrefix(line, "Mia:") {
+				role := "user"
+				// 如果是自己说的话，标记为 assistant
+				if a.config.Name != "" && strings.HasPrefix(line, a.config.Name+":") {
+					role = "assistant"
+				}
 				messages = append(messages, llm.Message{
-					Role:    "user",
+					Role:    role,
 					Content: line,
 				})
 			}
 		}
 	}
 
-	// Add current message
+	// Add current message and save to memory
 	messages = append(messages, llm.Message{
 		Role:    "user",
 		Content: currentMessage,
 	})
+	a.memory.AddMessage("user", currentMessage)
 
 	// Execute tool calling loop
 	return a.executeToolLoop(messages)
@@ -191,7 +198,7 @@ func (a *Agent) executeToolLoop(messages []llm.Message) string {
 		resp, err := a.config.LLMClient.Complete(messages, &llm.CompleteOptions{
 			Model:       a.config.Model,
 			Temperature: 0.7,
-			MaxTokens:   500,
+			MaxTokens:   4000,
 			Tools:       tools,
 		})
 
@@ -296,10 +303,12 @@ func (a *Agent) executeToolLoop(messages []llm.Message) string {
 		return reply
 	}
 
-	// Max iterations reached
-	messages = a.memory.GetMessages()
-	if len(messages) > 0 {
-		return messages[len(messages)-1].Content
+	// Max iterations reached - 从当前对话中提取最后一条 assistant 回复
+	for j := len(messages) - 1; j >= 0; j-- {
+		if messages[j].Role == "assistant" && messages[j].Content != "" {
+			a.memory.AddMessage("assistant", messages[j].Content)
+			return messages[j].Content
+		}
 	}
 
 	return "抱歉，需要更多时间来处理这个问题。"

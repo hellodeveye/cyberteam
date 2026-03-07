@@ -63,6 +63,9 @@ func NewFileMemoryWithPaths(personalPath, sharedPath string) *FileMemory {
 
 // loadFromFiles 从文件加载记忆
 func (m *FileMemory) loadFromFiles() {
+	// 清空长期记忆，避免重复追加
+	m.LongTerm = make([]llm.Message, 0)
+
 	// 加载个人记忆
 	if m.personalPath != "" {
 		if content, err := os.ReadFile(m.personalPath); err == nil {
