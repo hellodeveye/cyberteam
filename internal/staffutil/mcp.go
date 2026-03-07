@@ -85,6 +85,10 @@ func (c *MCPClient) GetToolsPrompt() string {
 	lines = append(lines, "**可用工具：**")
 	for _, t := range tools {
 		lines = append(lines, fmt.Sprintf("- %s: %s", t.Name, t.Description))
+		// 展示参数列表（从 InputSchema.properties 提取）
+		if params := extractSchemaParams(t.InputSchema); len(params) > 0 {
+			lines = append(lines, fmt.Sprintf("  参数: %s", strings.Join(params, ", ")))
+		}
 	}
 	lines = append(lines, "")
 	lines = append(lines, "**使用工具：**")
@@ -92,4 +96,48 @@ func (c *MCPClient) GetToolsPrompt() string {
 	lines = append(lines, `例如：[TOOL:fetch:fetch_url]{"url":"https://example.com"}`)
 
 	return strings.Join(lines, "\n")
+}
+
+// extractSchemaParams 从 JSON Schema 提取参数名和类型描述
+// 格式: ["url(string,required)", "timeout(integer)"]
+func extractSchemaParams(schema map[string]interface{}) []string {
+	if schema == nil {
+		return nil
+	}
+	props, ok := schema["properties"].(map[string]interface{})
+	if !ok || len(props) == 0 {
+		return nil
+	}
+
+	// 收集 required 集合
+	required := map[string]bool{}
+	if req, ok := schema["required"].([]interface{}); ok {
+		for _, r := range req {
+			if s, ok := r.(string); ok {
+				required[s] = true
+			}
+		}
+	}
+
+	var params []string
+	for name, def := range props {
+		typ := "any"
+		if defMap, ok := def.(map[string]interface{}); ok {
+			if t, ok := defMap["type"].(string); ok {
+				typ = t
+			} else if desc, ok := defMap["description"].(string); ok && desc != "" {
+				// 无 type 时用 description 片段作提示
+				if len(desc) > 20 {
+					desc = desc[:20]
+				}
+				typ = desc
+			}
+		}
+		if required[name] {
+			params = append(params, fmt.Sprintf("%s(%s,required)", name, typ))
+		} else {
+			params = append(params, fmt.Sprintf("%s(%s)", name, typ))
+		}
+	}
+	return params
 }

@@ -205,6 +205,7 @@ func (m *Manager) ListTools(role string) []protocol.MCPToolInfo {
 				Name:        fmt.Sprintf("%s:%s", serverName, tool.Name),
 				Server:      serverName,
 				Description: tool.Description,
+				InputSchema: tool.InputSchema,
 			})
 		}
 	}

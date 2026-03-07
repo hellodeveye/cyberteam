@@ -620,10 +620,8 @@ tools:
 
 ### MCP 待完善
 
-- [ ] **Tool 参数 Schema 暴露**（优先级高）：`fetchTools()` 已获取 `InputSchema`，但未放入 `MCPToolInfo` 传给 Staff；`GetToolsPrompt()` 生成的 LLM prompt 缺少参数说明，导致 Staff 调用工具时无法知道需要哪些参数。
-  - 涉及文件：`internal/mcp/server.go`、`internal/protocol/mcp.go`（`MCPToolInfo` 加 `InputSchema` 字段）、`internal/staffutil/mcp.go`（`GetToolsPrompt()` 格式化参数列表）
-- [ ] **Product / Tester 接入 MCPClient**（优先级高）：目前只有 `developer` 注入了 `MCPClient`，`product` 和 `tester` 的 meeting participant 无法调用 MCP 工具。
-  - 涉及文件：`cmd/staff/product/main.go`、`cmd/staff/tester/main.go`（参考 `cmd/staff/developer/main.go` 的接入方式）
+- [x] **Tool 参数 Schema 暴露**：`MCPToolInfo` 已加 `InputSchema` 字段，`ListTools()` 传递 Schema，`GetToolsPrompt()` 格式化参数供 LLM 使用
+- [x] **Product / Tester 接入 MCPClient**：三个角色均已注入 MCPClient（经核查已完成）
 
 ### 功能扩展
 
