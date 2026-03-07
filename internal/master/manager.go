@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"cyberteam/internal/common"
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/registry"
 	"cyberteam/internal/workflow"
@@ -764,7 +765,7 @@ func (m *Manager) AssignWorkflowTask(taskID string) error {
 
 	// 如果没有分配人，自动分配一个
 	if task.Assignee == "" {
-		role := getRoleForStage(task.Stage)
+		role := common.GetRoleForStage(task.Stage)
 		staffs := m.registry.ListByRole(role)
 		if len(staffs) == 0 {
 			return fmt.Errorf("no available staff for role: %s", role)
@@ -902,7 +903,7 @@ func (m *Manager) ShowTeam() {
 	staffs := m.registry.ListAll()
 	fmt.Println("\n👥 团队状态:")
 	for _, s := range staffs {
-		icon := getRoleIcon(s.Role)
+		icon := common.GetRoleIcon(s.Role)
 		statusIcon := "🟢"
 		if s.Status == protocol.StatusBusy {
 			statusIcon = "🔴"
@@ -932,22 +933,6 @@ func (m *Manager) Shutdown() {
 	}
 }
 
-// getRoleForStage 根据阶段获取角色
-func getRoleForStage(stage workflow.Stage) string {
-	mapping := map[workflow.Stage]string{
-		workflow.StageRequirement: "product",
-		workflow.StageDesign:      "developer", // 系统设计由 Developer 处理
-		workflow.StageReview:      "product",
-		workflow.StageDevelop:     "developer",
-		workflow.StageTest:        "tester",
-		workflow.StageDeploy:      "developer",
-	}
-	if role, ok := mapping[stage]; ok {
-		return role
-	}
-	return ""
-}
-
 // getCapabilityForStage 根据阶段获取能力
 func getCapabilityForStage(stage workflow.Stage) string {
 	mapping := map[workflow.Stage]string{
@@ -962,18 +947,6 @@ func getCapabilityForStage(stage workflow.Stage) string {
 		return cap
 	}
 	return ""
-}
-
-func getRoleIcon(role string) string {
-	icons := map[string]string{
-		"product":   "📝",
-		"developer": "💻",
-		"tester":    "🧪",
-	}
-	if icon, ok := icons[role]; ok {
-		return icon
-	}
-	return "👤"
 }
 
 func generateID() string {
