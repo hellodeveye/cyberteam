@@ -1,17 +1,16 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"time"
+
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/staffutil"
 	"cyberteam/internal/worker"
 	"encoding/json"
-	"flag"
-	"fmt"
-	"os"
-	"path/filepath"
-	"time"
 )
 
 // ProductStaff 产品经理
@@ -23,78 +22,15 @@ type ProductStaff struct {
 }
 
 func main() {
-	var (
-		id      = flag.String("id", "", "Staff ID")
-		name    = flag.String("name", "", "Staff name")
-		apiKey  = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "OpenAI API Key")
-		baseURL = flag.String("base-url", getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"), "OpenAI Base URL")
-		model   = flag.String("model", getEnv("OPENAI_MODEL", "gpt-4o"), "LLM Model")
-	)
-	flag.Parse()
-
-	if *id == "" || *name == "" {
-		fmt.Fprintln(os.Stderr, "Usage: product --id <id> --name <name>")
-		os.Exit(1)
-	}
-
-	// 获取执行文件所在目录
-	execPath, _ := os.Executable()
-	execDir := filepath.Dir(execPath)
-	profilePath := filepath.Join(execDir, "PROFILE.md")
-
-	// 创建 LLM 客户端（必须配置 API Key）
-	if *apiKey == "" {
-		fmt.Fprintf(os.Stderr, "错误: 未设置 OPENAI_API_KEY 环境变量\n")
-		fmt.Fprintf(os.Stderr, "请设置 API Key 后重试:\n")
-		fmt.Fprintf(os.Stderr, "  export OPENAI_API_KEY=your-api-key\n")
-		os.Exit(1)
-	}
-	llmClient := llm.NewOpenAIClient(*apiKey, *baseURL)
-
-	// 加载 Profile
-	var prof *profile.Profile
-	if p, err := profile.Load(profilePath); err == nil {
-		prof = p
-	} else {
-		// Fallback: 使用默认值
-		prof = getDefaultProfile()
-	}
-
-	profileData := &protocol.WorkerProfile{
-		ID:              *id,
-		Name:            *name,
-		Role:            "product",
-		Version:         "1.0.0",
-		Capabilities:    buildCapabilities(prof),
-		Status:          protocol.StatusIdle,
-		Load:            0,
-		ProfileMarkdown: prof.Body,
-	}
+	cfg := staffutil.ParseFlags("product")
+	cfg.LoadProfile(getDefaultProfile())
 
 	staff := &ProductStaff{
-		llmClient: llmClient,
-		model:     *model,
-		profile:   prof,
+		llmClient: cfg.LLMClient,
+		model:     cfg.Model,
+		profile:   cfg.Profile,
 	}
-	staff.BaseWorker = worker.NewBaseWorker(profileData, staff)
-
-	// 设置会议处理器（方案二）
-	meetingParticipant := staffutil.NewMeetingParticipant("product", *name, prof, llmClient, *model)
-
-	// 设置 MCP 客户端
-	mcpClient := staffutil.NewMCPClient(staff.BaseWorker.CallMCP)
-	meetingParticipant.MCPClient = mcpClient
-
-	staff.BaseWorker.SetMeetingHandler(&ProductMeetingHandler{
-		Participant: meetingParticipant,
-		Name:        *name,
-	})
-
-	// 设置私聊处理器
-	staff.BaseWorker.SetPrivateHandler(&ProductPrivateHandler{
-		Participant: meetingParticipant,
-		Name:        *name,
-	})
+	staff.BaseWorker = cfg.SetupWorker("product", staff)
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Product staff error: %v\n", err)
@@ -123,12 +59,11 @@ func (s *ProductStaff) Handle(task protocol.Task, resultChan chan<- protocol.Tas
 }
 
 func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- protocol.TaskResult, start time.Time) {
-	req := getString(task.Inputs, "requirement", "")
-	constraints := getString(task.Inputs, "constraints", "")
+	req := staffutil.GetString(task.Inputs, "requirement", "")
+	constraints := staffutil.GetString(task.Inputs, "constraints", "")
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在分析需求..."}}
 
-	// 使用 LLM 生成 PRD
 	prompt := fmt.Sprintf(`你是一个资深产品经理。请根据以下需求撰写一份详细的 PRD 文档。
 
 需求描述：%s
@@ -167,10 +102,8 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 		return
 	}
 
-	// 尝试解析 JSON
 	var output map[string]any
 	if err := json.Unmarshal([]byte(resp.Content), &output); err != nil {
-		// 如果不是 JSON，包装成 PRD
 		output = map[string]any{
 			"prd":                 resp.Content,
 			"user_stories":        []string{"作为用户，我希望使用这个功能"},
@@ -178,7 +111,6 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 		}
 	}
 
-	// 使用新的输出系统写入文件
 	if task.WorkspaceDir != "" {
 		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入 PRD 文档..."}}
 
@@ -207,8 +139,8 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 }
 
 func (s *ProductStaff) designReview(task protocol.Task, resultChan chan<- protocol.TaskResult, start time.Time) {
-	design := getString(task.Inputs, "design", "")
-	prd := getString(task.Inputs, "prd", "")
+	design := staffutil.GetString(task.Inputs, "design", "")
+	prd := staffutil.GetString(task.Inputs, "prd", "")
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"🔍 正在评审设计方案..."}}
 
@@ -275,21 +207,6 @@ PRD：
 	resultChan <- result
 }
 
-func getString(m map[string]any, key, defaultVal string) string {
-	if v, ok := m[key].(string); ok && v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-func getEnv(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-// getDefaultProfile 返回默认的 Profile（Fallback 用）
 func getDefaultProfile() *profile.Profile {
 	return &profile.Profile{
 		Name:        "张产品",
@@ -308,93 +225,4 @@ func getDefaultProfile() *profile.Profile {
 2. 需求必须可测试、可验收
 3. 评审严格但建设性`,
 	}
-}
-
-// buildCapabilities 从 Profile 构建能力列表
-func buildCapabilities(prof *profile.Profile) []protocol.Capability {
-	// 如果有 Profile 中定义了 capabilities，使用它们
-	if len(prof.Capabilities) > 0 {
-		caps := make([]protocol.Capability, len(prof.Capabilities))
-		for i, cap := range prof.Capabilities {
-			caps[i] = protocol.Capability{
-				Name:        cap.Name,
-				Description: cap.Description,
-				Inputs:      convertParams(cap.Inputs),
-				Outputs:     convertParams(cap.Outputs),
-				EstTime:     cap.EstTime,
-			}
-		}
-		return caps
-	}
-
-	// 默认 capabilities（fallback）
-	return []protocol.Capability{
-		{
-			Name:        "analyze_requirement",
-			Description: "分析产品需求，输出 PRD 文档",
-			Inputs: []protocol.Param{
-				{Name: "requirement", Type: "string", Required: true, Desc: "原始需求描述"},
-				{Name: "constraints", Type: "string", Required: false, Desc: "约束条件"},
-			},
-			Outputs: []protocol.Param{
-				{Name: "prd", Type: "string", Desc: "PRD 文档"},
-				{Name: "user_stories", Type: "array", Desc: "用户故事"},
-				{Name: "acceptance_criteria", Type: "array", Desc: "验收标准"},
-			},
-			EstTime: "15m",
-		},
-		{
-			Name:        "design_review",
-			Description: "评审设计方案",
-			Inputs: []protocol.Param{
-				{Name: "design", Type: "string", Required: true, Desc: "设计文档"},
-				{Name: "prd", Type: "string", Required: true, Desc: "PRD 文档"},
-			},
-			Outputs: []protocol.Param{
-				{Name: "approved", Type: "bool", Desc: "是否通过"},
-				{Name: "feedback", Type: "string", Desc: "评审意见"},
-				{Name: "suggestions", Type: "array", Desc: "改进建议"},
-			},
-			EstTime: "10m",
-		},
-	}
-}
-
-// convertParams 转换参数类型
-func convertParams(params []profile.Param) []protocol.Param {
-	if len(params) == 0 {
-		return nil
-	}
-	result := make([]protocol.Param, len(params))
-	for i, p := range params {
-		result[i] = protocol.Param{
-			Name:     p.Name,
-			Type:     p.Type,
-			Required: p.Required,
-			Desc:     p.Desc,
-		}
-	}
-	return result
-}
-
-// ProductMeetingHandler Product 会议处理器
-type ProductMeetingHandler struct {
-	Participant *staffutil.MeetingParticipant
-	Name        string
-}
-
-// HandleMeetingMessage 处理会议消息
-func (h *ProductMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
-	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
-}
-
-// ProductPrivateHandler Product 私聊处理器
-type ProductPrivateHandler struct {
-	Participant *staffutil.MeetingParticipant
-	Name        string
-}
-
-// HandlePrivateMessage 处理私聊消息
-func (h *ProductPrivateHandler) HandlePrivateMessage(from string, content string, history string) string {
-	return h.Participant.GenerateReply("", "私聊", history, from, content, true)
 }
