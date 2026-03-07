@@ -39,6 +39,10 @@ type Manager struct {
 	// 私聊消息回调
 	privateMsgCallback func(staffName, content string)
 	privateMu          sync.RWMutex
+
+	// 生命周期管理
+	done chan struct{} // 关闭信号
+	wg   sync.WaitGroup
 }
 
 // LogEntry 日志条目
@@ -66,9 +70,11 @@ func NewManager(engine *workflow.Engine, debug bool) *Manager {
 		taskLogs:      make(map[string][]LogEntry),
 		lastHeartbeat: make(map[string]time.Time),
 		debug:         debug,
+		done:          make(chan struct{}),
 	}
 
 	// 启动心跳超时检测
+	m.wg.Add(1)
 	go m.heartbeatChecker()
 
 	return m
@@ -76,25 +82,31 @@ func NewManager(engine *workflow.Engine, debug bool) *Manager {
 
 // heartbeatChecker 定期检查员工心跳超时
 func (m *Manager) heartbeatChecker() {
+	defer m.wg.Done()
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		m.heartbeatMu.RLock()
-		now := time.Now()
-		for staffID, lastTime := range m.lastHeartbeat {
-			if now.Sub(lastTime) > 90*time.Second {
-				// 超时，标记为离线
-				m.mu.Lock()
-				if proc, ok := m.staffs[staffID]; ok && proc.Profile != nil {
-					proc.Profile.Status = protocol.StatusOffline
+	for {
+		select {
+		case <-m.done:
+			return
+		case <-ticker.C:
+			m.heartbeatMu.RLock()
+			now := time.Now()
+			for staffID, lastTime := range m.lastHeartbeat {
+				if now.Sub(lastTime) > 90*time.Second {
+					// 超时，标记为离线
+					m.mu.Lock()
+					if proc, ok := m.staffs[staffID]; ok && proc.Profile != nil {
+						proc.Profile.Status = protocol.StatusOffline
+					}
+					m.mu.Unlock()
+					m.registry.UpdateStatus(staffID, protocol.StatusOffline, 0)
+					common.Debugf("[Boss] 员工 %s 心跳超时，已标记为离线\n", staffID[:8])
 				}
-				m.mu.Unlock()
-				m.registry.UpdateStatus(staffID, protocol.StatusOffline, 0)
-				common.Debugf("[Boss] 员工 %s 心跳超时，已标记为离线\n", staffID[:8])
 			}
+			m.heartbeatMu.RUnlock()
 		}
-		m.heartbeatMu.RUnlock()
 	}
 }
 
@@ -145,6 +157,7 @@ func (m *Manager) SetMessageCallback(cb func(staffID, msgType, content string)) 
 // 约定：cmd/staff/<role>/ 下必须有可执行文件和 PROFILE.md
 func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
 	var discovered []string
+	var hireWg sync.WaitGroup
 
 	entries, err := os.ReadDir(staffRootDir)
 	if err != nil {
@@ -186,7 +199,9 @@ func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
 		discovered = append(discovered, role)
 
 		// 并行招聘员工
+		hireWg.Add(1)
 		go func(role, name, binaryPath string) {
+			defer hireWg.Done()
 			if _, err := m.HireStaff(role, name, binaryPath); err != nil {
 				common.Debugf("   😴 %s 还在睡觉，迟到中...\n", name)
 				return
@@ -196,7 +211,7 @@ func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
 	}
 
 	// 等待所有员工启动完成
-	time.Sleep(3 * time.Second)
+	hireWg.Wait()
 
 	return discovered, nil
 }
@@ -835,11 +850,12 @@ func (m *Manager) ShowTeam() {
 	fmt.Println()
 }
 
-// Shutdown 关闭所有员工
+// Shutdown 关闭所有员工并等待后台 goroutine 退出
 func (m *Manager) Shutdown() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// 发送关闭信号，停止 heartbeatChecker 等后台 goroutine
+	close(m.done)
 
+	m.mu.Lock()
 	for id, proc := range m.staffs {
 		msg := protocol.Message{Type: protocol.MsgShutdown, ID: protocol.GenerateID()}
 		data, _ := json.Marshal(msg)
@@ -847,10 +863,16 @@ func (m *Manager) Shutdown() {
 		fmt.Printf("[Boss] 通知 %s 下班\n", id[:8])
 
 		// 等待进程退出
+		m.wg.Add(1)
 		go func(cmd *exec.Cmd) {
+			defer m.wg.Done()
 			cmd.Wait()
 		}(proc.Cmd)
 	}
+	m.mu.Unlock()
+
+	// 等待所有后台 goroutine 退出
+	m.wg.Wait()
 }
 
 // getCapabilityForStage 根据阶段获取能力

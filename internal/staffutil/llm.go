@@ -1,6 +1,7 @@
 package staffutil
 
 import (
+	"context"
 	"cyberteam/internal/llm"
 	"encoding/json"
 	"fmt"
@@ -44,7 +45,7 @@ func (c *LLMToolCaller) CompleteWithTools(messages []llm.Message) string {
 	maxIterations := 5
 
 	for i := 0; i < maxIterations; i++ {
-		resp, err := c.Client.Complete(messages, &llm.CompleteOptions{
+		resp, err := c.Client.Complete(context.Background(), messages, &llm.CompleteOptions{
 			Model:       c.Model,
 			Temperature: 0.7,
 			MaxTokens:   500,

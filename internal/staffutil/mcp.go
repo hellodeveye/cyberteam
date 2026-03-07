@@ -15,6 +15,13 @@ import (
 	"cyberteam/internal/protocol"
 )
 
+// MCP 超时常量
+const (
+	MCPInitTimeout    = 10 * time.Second // 初始化超时
+	MCPToolListTimeout = 10 * time.Second // 获取工具列表超时
+	MCPToolCallTimeout = 30 * time.Second // 工具调用超时
+)
+
 // StaffMCPClient Staff 直接连接的 MCP 客户端
 type StaffMCPClient struct {
 	role    string
@@ -294,9 +301,10 @@ func (s *staffMCPServer) stop() error {
 // initialize 初始化：获取工具列表
 func (s *staffMCPServer) initialize() error {
 	// 发送 initialize 请求
+	reqID := "init-1"
 	req := jsonRPCRequest{
 		JSONRPC: "2.0",
-		ID:      "init-1",
+		ID:      reqID,
 		Method:  "initialize",
 		Params: map[string]interface{}{
 			"protocolVersion": "2024-11-05",
@@ -310,8 +318,15 @@ func (s *staffMCPServer) initialize() error {
 
 	respChan := make(chan *jsonRPCResponse, 1)
 	s.mu.Lock()
-	s.pending["init-1"] = respChan
+	s.pending[reqID] = respChan
 	s.mu.Unlock()
+
+	// 确保超时时清理 pending channel，防止 goroutine 泄漏
+	defer func() {
+		s.mu.Lock()
+		delete(s.pending, reqID)
+		s.mu.Unlock()
+	}()
 
 	if err := s.sendRequest(&req); err != nil {
 		return err
@@ -319,11 +334,14 @@ func (s *staffMCPServer) initialize() error {
 
 	// 等待响应
 	select {
-	case resp := <-respChan:
+	case resp, ok := <-respChan:
+		if !ok {
+			return fmt.Errorf("server disconnected during initialize")
+		}
 		if resp.Error != nil {
 			return fmt.Errorf("initialize error: %s", resp.Error.Message)
 		}
-	case <-time.After(10 * time.Second):
+	case <-time.After(MCPInitTimeout):
 		return fmt.Errorf("initialize timeout")
 	}
 
@@ -341,23 +359,34 @@ func (s *staffMCPServer) initialize() error {
 
 // fetchTools 获取工具列表
 func (s *staffMCPServer) fetchTools() error {
+	reqID := "tools-1"
 	req := jsonRPCRequest{
 		JSONRPC: "2.0",
-		ID:      "tools-1",
+		ID:      reqID,
 		Method:  "tools/list",
 	}
 
 	respChan := make(chan *jsonRPCResponse, 1)
 	s.mu.Lock()
-	s.pending["tools-1"] = respChan
+	s.pending[reqID] = respChan
 	s.mu.Unlock()
+
+	// 确保超时时清理 pending channel
+	defer func() {
+		s.mu.Lock()
+		delete(s.pending, reqID)
+		s.mu.Unlock()
+	}()
 
 	if err := s.sendRequest(&req); err != nil {
 		return err
 	}
 
 	select {
-	case resp := <-respChan:
+	case resp, ok := <-respChan:
+		if !ok {
+			return fmt.Errorf("server disconnected during fetchTools")
+		}
 		if resp.Error != nil {
 			return fmt.Errorf("list tools error: %s", resp.Error.Message)
 		}
@@ -381,7 +410,7 @@ func (s *staffMCPServer) fetchTools() error {
 		}
 		return nil
 
-	case <-time.After(10 * time.Second):
+	case <-time.After(MCPToolListTimeout):
 		return fmt.Errorf("list tools timeout")
 	}
 }
@@ -412,6 +441,7 @@ func (s *staffMCPServer) callTool(name string, args map[string]interface{}) (str
 	s.pending[reqID] = respChan
 	s.mu.Unlock()
 
+	// 确保超时时清理 pending channel（delete 对已删除的 key 是安全的）
 	defer func() {
 		s.mu.Lock()
 		delete(s.pending, reqID)
@@ -423,14 +453,17 @@ func (s *staffMCPServer) callTool(name string, args map[string]interface{}) (str
 	}
 
 	select {
-	case resp := <-respChan:
+	case resp, ok := <-respChan:
+		if !ok {
+			return "", fmt.Errorf("server disconnected")
+		}
 		if resp.Error != nil {
 			return "", fmt.Errorf("tool error: %s", resp.Error.Message)
 		}
 		// 解析结果
 		return parseToolResult(resp.Result), nil
 
-	case <-time.After(30 * time.Second):
+	case <-time.After(MCPToolCallTimeout):
 		return "", fmt.Errorf("call tool timeout")
 	}
 }
@@ -451,9 +484,22 @@ func (s *staffMCPServer) sendRequest(req *jsonRPCRequest) error {
 
 // readLoop 读取响应循环
 func (s *staffMCPServer) readLoop() {
+	defer func() {
+		// readLoop 退出时，关闭所有等待中的 pending channels，防止 goroutine 泄漏
+		s.mu.Lock()
+		for id, ch := range s.pending {
+			close(ch)
+			delete(s.pending, id)
+		}
+		s.mu.Unlock()
+	}()
+
 	for {
 		line, err := s.stdout.ReadString('\n')
 		if err != nil {
+			if err != io.EOF {
+				fmt.Fprintf(os.Stderr, "[StaffMCP:%s] readLoop error: %v\n", s.name, err)
+			}
 			return
 		}
 
@@ -462,9 +508,12 @@ func (s *staffMCPServer) readLoop() {
 			continue
 		}
 
-		// 找到等待的 channel
+		// 找到等待的 channel，发送后立即从 pending 中删除
 		s.mu.Lock()
 		ch, ok := s.pending[resp.ID]
+		if ok {
+			delete(s.pending, resp.ID)
+		}
 		s.mu.Unlock()
 
 		if ok {

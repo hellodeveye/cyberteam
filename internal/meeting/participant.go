@@ -1,6 +1,7 @@
 package meeting
 
 import (
+	"context"
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"encoding/json"
@@ -59,7 +60,7 @@ func (s *StaffParticipant) GenerateResponse(ctx *DiscussionContext) (string, err
 		systemPrompt = s.buildDefaultSystemPrompt()
 	}
 
-	resp, err := s.LLMClient.Complete([]llm.Message{
+	resp, err := s.LLMClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{
@@ -148,7 +149,7 @@ func (f *Facilitator) GenerateSummary(meeting *Meeting) (string, []string, error
   "action_items": ["行动项1", "行动项2", ...]
 }`, meeting.Topic, strings.Join(meeting.Participants, ", "), transcript)
 
-	resp, err := f.LLMClient.Complete([]llm.Message{
+	resp, err := f.LLMClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: "你是会议主持人，擅长提炼关键信息和行动项。"},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{

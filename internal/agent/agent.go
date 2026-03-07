@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"context"
 	"cyberteam/internal/llm"
 	"encoding/json"
 	"fmt"
@@ -95,8 +96,13 @@ func (a *Agent) SetSystemPrompt(prompt string) {
 	a.config.SystemPrompt = prompt
 }
 
-// Execute executes a single conversation turn
+// Execute executes a single conversation turn with context support
 func (a *Agent) Execute(userPrompt string) string {
+	return a.ExecuteWithCtx(context.Background(), userPrompt)
+}
+
+// ExecuteWithCtx executes a single conversation turn with explicit context
+func (a *Agent) ExecuteWithCtx(ctx context.Context, userPrompt string) string {
 	systemMsg := a.buildSystemMessage()
 
 	messages := []llm.Message{
@@ -114,11 +120,16 @@ func (a *Agent) Execute(userPrompt string) string {
 	a.memory.AddMessage("user", userPrompt)
 
 	// Execute tool calling loop
-	return a.executeToolLoop(messages)
+	return a.executeToolLoop(ctx, messages)
 }
 
 // ExecuteWithContext executes with conversation context (for meetings/private chats)
 func (a *Agent) ExecuteWithContext(transcript, currentMessage string) string {
+	return a.ExecuteWithContextAndCtx(context.Background(), transcript, currentMessage)
+}
+
+// ExecuteWithContextAndCtx executes with conversation context and explicit context
+func (a *Agent) ExecuteWithContextAndCtx(ctx context.Context, transcript, currentMessage string) string {
 	systemMsg := a.buildSystemMessage()
 
 	messages := []llm.Message{
@@ -156,12 +167,18 @@ func (a *Agent) ExecuteWithContext(transcript, currentMessage string) string {
 	a.memory.AddMessage("user", currentMessage)
 
 	// Execute tool calling loop
-	return a.executeToolLoop(messages)
+	return a.executeToolLoop(ctx, messages)
 }
 
 // executeToolLoop executes the tool calling loop
-func (a *Agent) executeToolLoop(messages []llm.Message) string {
+func (a *Agent) executeToolLoop(ctx context.Context, messages []llm.Message) string {
 	for i := 0; i < a.config.MaxIterations; i++ {
+		// 检查 context 是否已取消
+		if err := ctx.Err(); err != nil {
+			a.Debugf("[Agent] context cancelled: %v\n", err)
+			return "任务已取消。"
+		}
+
 		// 构建工具定义，将工具名转换为合法格式
 		var tools []llm.ToolDef
 		toolNameMap := make(map[string]string) // LLM工具名 -> 注册名
@@ -195,7 +212,7 @@ func (a *Agent) executeToolLoop(messages []llm.Message) string {
 			})
 		}
 
-		resp, err := a.config.LLMClient.Complete(messages, &llm.CompleteOptions{
+		resp, err := a.config.LLMClient.Complete(ctx, messages, &llm.CompleteOptions{
 			Model:       a.config.Model,
 			Temperature: 0.7,
 			MaxTokens:   4000,
@@ -234,7 +251,15 @@ func (a *Agent) executeToolLoop(messages []llm.Message) string {
 				// 解析参数
 				var args map[string]any
 				if tc.Function.Arguments != "" {
-					json.Unmarshal([]byte(tc.Function.Arguments), &args)
+					if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+						a.Debugf("[Agent] 工具参数解析失败: %v, raw: %s\n", err, tc.Function.Arguments)
+						messages = append(messages, llm.Message{
+							Role:       "tool",
+							ToolCallID: toolID,
+							Content:    fmt.Sprintf("参数解析失败: %v", err),
+						})
+						continue
+					}
 				}
 
 				result, err := a.toolRegistry.Execute(originalName, args)

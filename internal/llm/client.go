@@ -2,6 +2,7 @@ package llm
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,7 +13,7 @@ import (
 
 // Client LLM 客户端接口
 type Client interface {
-	Complete(messages []Message, options *CompleteOptions) (*Response, error)
+	Complete(ctx context.Context, messages []Message, options *CompleteOptions) (*Response, error)
 }
 
 // Message 对话消息
@@ -100,7 +101,7 @@ func getDefaultModel() string {
 }
 
 // Complete 发送对话请求
-func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Response, error) {
+func (c *OpenAIClient) Complete(ctx context.Context, messages []Message, opts *CompleteOptions) (*Response, error) {
 	if opts == nil {
 		opts = &CompleteOptions{
 			Model:       getDefaultModel(),
@@ -127,27 +128,56 @@ func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Res
 		return nil, fmt.Errorf("marshal request: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", c.BaseURL+"/chat/completions", bytes.NewReader(jsonData))
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
+	// 带指数退避的重试逻辑（最多重试 3 次，仅对暂时性错误重试）
+	const maxRetries = 3
+	var body []byte
+	var lastErr error
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		if attempt > 0 {
+			backoff := time.Duration(1<<uint(attempt-1)) * time.Second // 1s, 2s, 4s
+			select {
+			case <-ctx.Done():
+				return nil, fmt.Errorf("context cancelled during retry: %w", ctx.Err())
+			case <-time.After(backoff):
+			}
+		}
 
-	resp, err := c.HTTPClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("do request: %w", err)
-	}
-	defer resp.Body.Close()
+		req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewReader(jsonData))
+		if err != nil {
+			return nil, fmt.Errorf("create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+c.APIKey)
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
+		resp, err := c.HTTPClient.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("do request: %w", err)
+			continue // 网络错误，重试
+		}
 
-	if resp.StatusCode != http.StatusOK {
+		body, err = io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			lastErr = fmt.Errorf("read body: %w", err)
+			continue
+		}
+
+		if resp.StatusCode == http.StatusOK {
+			lastErr = nil
+			break
+		}
+
+		// 5xx 或 429 限流可重试，其他错误直接返回
+		if resp.StatusCode >= 500 || resp.StatusCode == http.StatusTooManyRequests {
+			lastErr = fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+			continue
+		}
 		return nil, fmt.Errorf("API error %d: %s", resp.StatusCode, string(body))
+	}
+
+	if lastErr != nil {
+		return nil, lastErr
 	}
 
 	var result struct {
@@ -198,7 +228,7 @@ type MockClient struct {
 	Index     int
 }
 
-func (c *MockClient) Complete(messages []Message, opts *CompleteOptions) (*Response, error) {
+func (c *MockClient) Complete(ctx context.Context, messages []Message, opts *CompleteOptions) (*Response, error) {
 	content := "模拟响应：已根据您的需求生成了内容。"
 	if c.Index < len(c.Responses) {
 		content = c.Responses[c.Index]

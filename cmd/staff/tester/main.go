@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"context"
+
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
@@ -117,7 +119,7 @@ PRD：
 4. 包含正向、反向、边界测试`, prd, design, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("write_test_plan")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{
@@ -254,7 +256,7 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 3. 给出具体的 Bug 描述`, code, string(testCasesData), task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("execute_test")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, nil)

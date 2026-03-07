@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
 // Memory 接口 - 支持多种实现
@@ -30,9 +31,13 @@ type Memory interface {
 	GetPersistentContent() string
 }
 
+// MaxShortTermMessages 短期记忆最大消息数，超过时自动裁剪保留最近的消息
+const MaxShortTermMessages = 50
+
 // FileMemory 基于文件的记忆实现
 // 支持读取 MEMORY.md 作为长期记忆
 type FileMemory struct {
+	mu           sync.RWMutex
 	ShortTerm    []llm.Message // 当前会话
 	LongTerm     []llm.Message // 从 MEMORY.md 加载的历史
 	personalPath string        // 个人 MEMORY.md 路径
@@ -61,7 +66,7 @@ func NewFileMemoryWithPaths(personalPath, sharedPath string) *FileMemory {
 	return m
 }
 
-// loadFromFiles 从文件加载记忆
+// loadFromFiles 从文件加载记忆（调用者须持有锁或在初始化期间调用）
 func (m *FileMemory) loadFromFiles() {
 	// 清空长期记忆，避免重复追加
 	m.LongTerm = make([]llm.Message, 0)
@@ -87,25 +92,41 @@ func (m *FileMemory) loadFromFiles() {
 	}
 }
 
-// AddMessage 添加消息到短期记忆
+// AddMessage 添加消息到短期记忆（自动裁剪防止无限增长）
 func (m *FileMemory) AddMessage(role, content string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.ShortTerm = append(m.ShortTerm, llm.Message{
 		Role:    role,
 		Content: content,
 	})
+	// 超过上限时裁剪，保留最近的消息
+	if len(m.ShortTerm) > MaxShortTermMessages {
+		m.ShortTerm = m.ShortTerm[len(m.ShortTerm)-MaxShortTermMessages:]
+	}
 }
 
 // AddToolResult 添加工具结果到短期记忆
 func (m *FileMemory) AddToolResult(toolName, result string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	m.ShortTerm = append(m.ShortTerm, llm.Message{
 		Role:    "tool",
 		Content: fmt.Sprintf("[%s] %s", toolName, result),
 	})
+	if len(m.ShortTerm) > MaxShortTermMessages {
+		m.ShortTerm = m.ShortTerm[len(m.ShortTerm)-MaxShortTermMessages:]
+	}
 }
 
 // GetMessages 获取所有消息
 func (m *FileMemory) GetMessages() []llm.Message {
-	var result []llm.Message
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	result := make([]llm.Message, 0, len(m.LongTerm)+len(m.ShortTerm))
 	result = append(result, m.LongTerm...)
 	result = append(result, m.ShortTerm...)
 	return result
@@ -113,11 +134,15 @@ func (m *FileMemory) GetMessages() []llm.Message {
 
 // GetShortTerm 获取短期记忆
 func (m *FileMemory) GetShortTerm() []llm.Message {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
 	return m.ShortTerm
 }
 
 // Clear 清空短期记忆
 func (m *FileMemory) Clear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.ShortTerm = nil
 }
 
@@ -130,6 +155,7 @@ func (m *FileMemory) FlushToLongTerm() {
 
 // Save 保存到文件 (只保存短期会话的持久化信息)
 func (m *FileMemory) Save(path string) error {
+	m.mu.RLock()
 	// FileMemory 的 Save 主要保存会话元数据
 	// MEMORY.md 由用户手动编辑，不自动覆盖
 	data := struct {
@@ -139,6 +165,7 @@ func (m *FileMemory) Save(path string) error {
 		ShortTermCount: len(m.ShortTerm),
 		LongTermCount:  len(m.LongTerm),
 	}
+	m.mu.RUnlock()
 
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
@@ -202,12 +229,16 @@ func (m *FileMemory) GetPersistentContent() string {
 
 // SetPersonalPath 设置个人记忆路径
 func (m *FileMemory) SetPersonalPath(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.personalPath = path
 	m.loadFromFiles()
 }
 
 // SetSharedPath 设置共享记忆路径
 func (m *FileMemory) SetSharedPath(path string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	m.sharedPath = path
 	m.loadFromFiles()
 }
@@ -263,7 +294,10 @@ func (m *InMemoryMemory) Save(path string) error {
 	}{
 		LongTerm: m.LongTerm,
 	}
-	jsonData, _ := json.MarshalIndent(data, "", "  ")
+	jsonData, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal memory: %w", err)
+	}
 	return os.WriteFile(path, jsonData, 0644)
 }
 

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -108,7 +109,7 @@ PRD：
 4. 包含关键接口定义`, prd, feedback, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("design_system")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{
@@ -235,7 +236,7 @@ PRD：
 5. 添加必要注释`, language, prd, design, task.WorkspaceDir)
 
 	systemPrompt := s.profile.BuildSystemPrompt("implement_feature")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{
@@ -339,7 +340,7 @@ Bug 列表：
 3. 添加必要注释说明修改原因`, code, string(bugsData))
 
 	systemPrompt := s.profile.BuildSystemPrompt("fix_bug")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, nil)

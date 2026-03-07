@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"time"
@@ -83,7 +84,7 @@ func (s *ProductStaff) analyzeRequirement(task protocol.Task, resultChan chan<- 
 3. 验收标准可测试`, req, constraints)
 
 	systemPrompt := s.profile.BuildSystemPrompt("analyze_requirement")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, &llm.CompleteOptions{
@@ -167,7 +168,7 @@ PRD：
 4. 是否有遗漏或风险`, prd, design)
 
 	systemPrompt := s.profile.BuildSystemPrompt("design_review")
-	resp, err := s.llmClient.Complete([]llm.Message{
+	resp, err := s.llmClient.Complete(context.Background(), []llm.Message{
 		{Role: "system", Content: systemPrompt},
 		{Role: "user", Content: prompt},
 	}, nil)
