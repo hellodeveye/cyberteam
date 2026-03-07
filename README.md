@@ -618,6 +618,15 @@ tools:
 
 ## 后续优化
 
+### MCP 待完善
+
+- [ ] **Tool 参数 Schema 暴露**（优先级高）：`fetchTools()` 已获取 `InputSchema`，但未放入 `MCPToolInfo` 传给 Staff；`GetToolsPrompt()` 生成的 LLM prompt 缺少参数说明，导致 Staff 调用工具时无法知道需要哪些参数。
+  - 涉及文件：`internal/mcp/server.go`、`internal/protocol/mcp.go`（`MCPToolInfo` 加 `InputSchema` 字段）、`internal/staffutil/mcp.go`（`GetToolsPrompt()` 格式化参数列表）
+- [ ] **Product / Tester 接入 MCPClient**（优先级高）：目前只有 `developer` 注入了 `MCPClient`，`product` 和 `tester` 的 meeting participant 无法调用 MCP 工具。
+  - 涉及文件：`cmd/staff/product/main.go`、`cmd/staff/tester/main.go`（参考 `cmd/staff/developer/main.go` 的接入方式）
+
+### 功能扩展
+
 - [ ] **语音会议**：支持语音输入和 TTS 回复
 - [ ] **容器隔离**：在 Docker 容器中执行 Bash 命令
 - [ ] **Web UI**：可视化项目进度和会议记录
