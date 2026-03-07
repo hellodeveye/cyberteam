@@ -26,6 +26,7 @@ type Manager struct {
 	staffs      map[string]*StaffProcess
 	mu          sync.RWMutex
 	msgCallback func(staffID, msgType, content string)
+	debug       bool // debug 模式
 
 	// 任务日志存储
 	taskLogs map[string][]LogEntry // taskID -> logs
@@ -57,13 +58,14 @@ type StaffProcess struct {
 }
 
 // NewManager 创建项目经理
-func NewManager(engine *workflow.Engine) *Manager {
+func NewManager(engine *workflow.Engine, debug bool) *Manager {
 	m := &Manager{
 		engine:        engine,
 		registry:      registry.New(),
 		staffs:        make(map[string]*StaffProcess),
 		taskLogs:      make(map[string][]LogEntry),
 		lastHeartbeat: make(map[string]time.Time),
+		debug:         debug,
 	}
 
 	// 启动心跳超时检测
@@ -89,7 +91,7 @@ func (m *Manager) heartbeatChecker() {
 				}
 				m.mu.Unlock()
 				m.registry.UpdateStatus(staffID, protocol.StatusOffline, 0)
-				fmt.Fprintf(os.Stderr, "[Boss] 员工 %s 心跳超时，已标记为离线\n", staffID[:8])
+				common.Debugf("[Boss] 员工 %s 心跳超时，已标记为离线\n", staffID[:8])
 			}
 		}
 		m.heartbeatMu.RUnlock()
@@ -186,7 +188,7 @@ func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
 		// 并行招聘员工
 		go func(role, name, binaryPath string) {
 			if _, err := m.HireStaff(role, name, binaryPath); err != nil {
-				fmt.Fprintf(os.Stderr, "   😴 %s 还在睡觉，迟到中...\n", name)
+				common.Debugf("   😴 %s 还在睡觉，迟到中...\n", name)
 				return
 			}
 			fmt.Printf("   👤 %s - %s\n", name, role)
@@ -230,7 +232,12 @@ func (m *Manager) extractNameFromProfile(profilePath, defaultName string) string
 func (m *Manager) HireStaff(role, name, binaryPath string) (*protocol.WorkerProfile, error) {
 	staffID := fmt.Sprintf("%s-%d", role, time.Now().UnixNano())
 
-	cmd := exec.Command(binaryPath, "--id", staffID, "--name", name)
+	// 构建命令参数，支持 debug 模式
+	args := []string{"--id", staffID, "--name", name}
+	if m.debug {
+		args = append(args, "--debug")
+	}
+	cmd := exec.Command(binaryPath, args...)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
 		return nil, fmt.Errorf("stdin pipe: %w", err)
@@ -279,7 +286,7 @@ func (m *Manager) listenStaff(staffID string, stdout io.ReadCloser) {
 
 		var msg protocol.Message
 		if err := json.Unmarshal(line, &msg); err != nil {
-			fmt.Fprintf(os.Stderr, "[Boss] parse error: %v\n", err)
+			common.Debugf("[Boss] parse error: %v\n", err)
 			continue
 		}
 
@@ -292,7 +299,7 @@ func (m *Manager) listenStaff(staffID string, stdout io.ReadCloser) {
 	}
 	m.mu.Unlock()
 	m.registry.UpdateStatus(staffID, protocol.StatusOffline, 0)
-	fmt.Fprintf(os.Stderr, "[Boss] 员工 %s 已离线\n", staffID)
+	common.Debugf("[Boss] 员工 %s 已离线\n", staffID)
 }
 
 // handleMessage 处理员工消息
@@ -535,12 +542,12 @@ func (m *Manager) BroadcastMeetingMessageRandom(meetingID string, from string, c
 			}
 			data, err := json.Marshal(msg)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[Boss] 消息序列化失败: %v\n", err)
+				common.Debugf("[Boss] 消息序列化失败: %v\n", err)
 				return
 			}
 			_, err = p.Stdin.Write(append(data, '\n'))
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "[Boss] 发送消息给 %s 失败: %v\n", p.Role, err)
+				common.Debugf("[Boss] 发送消息给 %s 失败: %v\n", p.Role, err)
 			}
 		}(proc)
 	}
@@ -599,21 +606,7 @@ func (m *Manager) saveTaskArtifacts(taskID string, taskResult map[string]interfa
 	}
 
 	// 获取阶段编号
-	stageNum := 0
-	switch task.Stage {
-	case workflow.StageRequirement:
-		stageNum = 1
-	case workflow.StageDesign:
-		stageNum = 2
-	case workflow.StageReview:
-		stageNum = 3
-	case workflow.StageDevelop:
-		stageNum = 4
-	case workflow.StageTest:
-		stageNum = 5
-	case workflow.StageDeploy:
-		stageNum = 6
-	}
+	stageNum := common.GetStageNumber(task.Stage)
 
 	if stageNum == 0 || task.WorkspaceDir == "" {
 		return
@@ -639,7 +632,7 @@ func (m *Manager) saveTaskArtifacts(taskID string, taskResult map[string]interfa
 
 	// 保存产物
 	if err := wsManager.SaveArtifact(project.Name, project.ID, stageNum, artifact); err != nil {
-		fmt.Fprintf(os.Stderr, "[Boss] 保存产物失败: %v\n", err)
+		common.Debugf("[Boss] 保存产物失败: %v\n", err)
 	} else {
 		// 通知保存成功
 		names := workspace.StageArtifacts[stageNum]

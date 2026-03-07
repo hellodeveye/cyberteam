@@ -1,12 +1,14 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"cyberteam/internal/common"
 	"cyberteam/internal/master"
 	"cyberteam/internal/meeting"
 	"cyberteam/internal/profile"
@@ -25,8 +27,18 @@ var gMeetingRoom *meeting.Room
 var gBossProfile *profile.Profile
 
 func main() {
+	// 解析命令行参数
+	debug := flag.Bool("debug", false, "Enable debug mode")
+	flag.Parse()
+
+	// 设置全局 debug 模式
+	common.DebugMode = *debug
+
 	fmt.Println("🏢 CyberTeam")
 	fmt.Println("====================")
+	if *debug {
+		fmt.Println("🔧 Debug 模式已启用")
+	}
 
 	// 获取项目路径
 	exe, _ := os.Executable()
@@ -78,7 +90,7 @@ func main() {
 	// 注意：需要在 boss 创建后再调用 setupEventListeners，并传入 boss
 
 	// 创建 Boss（项目经理）
-	boss := master.NewManager(engine)
+	boss := master.NewManager(engine, *debug)
 	gBoss = boss // 设置全局变量
 
 	// 加载 Boss Profile（作为全局变量，供 UI 层动态读取）

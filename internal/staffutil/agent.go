@@ -16,6 +16,7 @@ type AgentConfig struct {
 	MCPClient     *StaffMCPClient // MCP 客户端 (可选)
 	SystemPrompt  string
 	MaxIterations int
+	Debug         bool
 }
 
 // Memory 对话记忆 (适配器版本，兼容旧接口)
@@ -98,6 +99,7 @@ func NewAgent(config AgentConfig) *Agent {
 		MCPExecutor:   mcpExecutor,
 		SystemPrompt:  config.SystemPrompt,
 		MaxIterations: config.MaxIterations,
+		Debug:         config.Debug,
 	})
 
 	return &Agent{

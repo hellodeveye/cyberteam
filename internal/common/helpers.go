@@ -1,8 +1,22 @@
 package common
 
 import (
+	"fmt"
+	"os"
+
 	"cyberteam/internal/workflow"
 )
+
+// DebugMode 全局 debug 开关
+var DebugMode = false
+
+// Debugf 在 debug 模式下打印消息到 stderr
+// 用法: common.Debugf("[Boss] message: %v\n", value)
+func Debugf(format string, args ...interface{}) {
+	if DebugMode {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
 
 // GetStageNumber 根据阶段获取阶段编号
 func GetStageNumber(stage workflow.Stage) int {

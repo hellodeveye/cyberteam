@@ -124,6 +124,9 @@ func (a *Agent) ExecuteWithContext(transcript, currentMessage string) string {
 		{Role: "system", Content: systemMsg},
 	}
 
+	// 从 Memory 加载历史对话
+	messages = append(messages, a.memory.GetMessages()...)
+
 	// Parse and add transcript
 	if transcript != "" {
 		lines := strings.Split(transcript, "\n")

@@ -29,7 +29,7 @@ servers:
         - delete_repository
 
   fetch:
-    enabled: true
+    enabled: false
     description: "网页抓取工具"
     command: "uvx mcp-server-fetch"
     acl:

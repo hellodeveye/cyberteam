@@ -1,7 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(task check)"
+      "Bash(task check)",
+      "Bash(task:*)",
+      "Bash(./bin/boss:*)",
+      "Bash(go build:*)",
+      "Bash(go vet:*)",
+      "Bash(zsh:*)",
+      "Bash(go fmt:*)",
+      "Bash(dircolors:*)"
     ]
   }
 }

@@ -86,6 +86,7 @@ func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, c
 		BashExecutor: bashExecutor,
 		Memory:       p.Memory,
 		SystemPrompt: systemPrompt,
+		Debug:        p.Debug,
 	})
 
 	// 注册 MCP 工具到 Agent 的 ToolRegistry
