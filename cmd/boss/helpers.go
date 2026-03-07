@@ -6,9 +6,6 @@ import (
 	"strings"
 )
 
-// bossName Boss 的名字
-const bossName = "Kai"
-
 // ANSI 颜色代码
 const (
 	ColorReset  = "\033[0m"
@@ -23,7 +20,7 @@ const (
 	ColorBold   = "\033[1m"
 )
 
-// 角色颜色映射
+// 角色颜色映射（UI 样式决策，与 Profile 无关，保持静态）
 var roleColors = map[string]string{
 	"product":   ColorGreen,  // 产品 - 绿色
 	"developer": ColorBlue,   // 开发 - 蓝色
@@ -31,28 +28,47 @@ var roleColors = map[string]string{
 	"boss":      ColorPurple, // Boss - 紫色
 }
 
-// 名字到角色的映射
-var nameToRole = map[string]string{
-	"Sarah": "product",
-	"Alex":  "developer",
-	"Mia":   "tester",
+// getBossName 从 gBossProfile 动态读取 Boss 名字
+func getBossName() string {
+	if gBossProfile != nil && gBossProfile.Name != "" {
+		return gBossProfile.Name
+	}
+	return "Boss"
+}
+
+// getNameToRole 从运行时 Registry 实时构建 name→role 映射（惰性求值，无时序问题）
+func getNameToRole() map[string]string {
+	if gBoss == nil {
+		return map[string]string{}
+	}
+	return gBoss.GetNameToRoleMap()
+}
+
+// getOnlineStaffNames 从运行时 Registry 获取在线 staff 名字列表
+func getOnlineStaffNames() []string {
+	if gBoss == nil {
+		return nil
+	}
+	return gBoss.GetOnlineStaffNames()
+}
+
+// roleForName 查询 name 对应的 role；未找到时返回 ("", false)
+func roleForName(name string) (string, bool) {
+	r, ok := getNameToRole()[name]
+	return r, ok
 }
 
 // colorizeMeetingReply 给会议回复添加颜色
 func colorizeMeetingReply(content string) string {
-	// 提取名字和角色
-	// 格式: [meetingID] **Name**: content 或 **Name**: content
 	name := extractNameFromReply(content)
 	role := ""
-	if r, ok := nameToRole[name]; ok {
+	if r, ok := roleForName(name); ok {
 		role = r
 	}
-	// 特殊处理 boss
 	if name == "boss" {
 		role = "boss"
 	}
 
-	// 获取颜色
 	color := ColorWhite
 	if c, ok := roleColors[role]; ok {
 		color = c
@@ -61,10 +77,9 @@ func colorizeMeetingReply(content string) string {
 	// 去掉 [meetingID] 前缀
 	cleanContent := content
 	if idx := strings.Index(content, "] **"); idx != -1 {
-		cleanContent = content[idx+2:] // 去掉 "] "
+		cleanContent = content[idx+2:]
 	}
 
-	// 替换 **Name** 为带颜色的版本
 	if name != "" {
 		oldName := fmt.Sprintf("**%s**", name)
 		newName := fmt.Sprintf("%s%s%s%s", ColorBold, color, name, ColorReset)
@@ -74,29 +89,27 @@ func colorizeMeetingReply(content string) string {
 	return cleanContent
 }
 
-// colorizeStaffMessage 给普通 Staff 消息添加颜色
+// colorizeStaffMessage 给普通 Staff 消息添加颜色（从 Registry 查 role，退化到 staffID 前缀推断）
 func colorizeStaffMessage(staffID, content string) string {
-	// 从 staffID 推断角色 (如 "developer-xxx")
-	role := ""
-	if strings.HasPrefix(staffID, "product") {
-		role = "product"
-	} else if strings.HasPrefix(staffID, "developer") {
-		role = "developer"
-	} else if strings.HasPrefix(staffID, "tester") {
-		role = "tester"
-	}
-
+	role := roleByStaffID(staffID)
 	color := ColorWhite
 	if c, ok := roleColors[role]; ok {
 		color = c
 	}
-
 	return fmt.Sprintf("%s[%s]%s %s", color, staffID[:8], ColorReset, content)
 }
 
-// extractNameFromReply 从回复中提取名字
+// roleByStaffID 从 staffID 推断 role。
+// staffID 格式固定为 "<role>-<timestamp>"（见 manager.HireStaff），取第一段即可。
+func roleByStaffID(staffID string) string {
+	if idx := strings.Index(staffID, "-"); idx > 0 {
+		return staffID[:idx]
+	}
+	return staffID
+}
+
+// extractNameFromReply 从回复中提取名字（格式: **Name**: content）
 func extractNameFromReply(content string) string {
-	// 匹配 **Name**: 格式
 	re := regexp.MustCompile(`\*\*([^*]+)\*\*:`)
 	matches := re.FindStringSubmatch(content)
 	if len(matches) > 1 {
@@ -108,15 +121,14 @@ func extractNameFromReply(content string) string {
 // extractMentions 提取 @ 提及并转换为 role
 func extractMentions(content string) []string {
 	var mentions []string
-	words := strings.Fields(content)
-	for _, w := range words {
+	nameToRole := getNameToRole()
+	for _, w := range strings.Fields(content) {
 		if strings.HasPrefix(w, "@") {
 			name := strings.TrimPrefix(w, "@")
-			// 尝试转换为 role
 			if role, ok := nameToRole[name]; ok {
 				mentions = append(mentions, role)
 			} else {
-				// 直接使用（可能是 role 名称）
+				// 直接当作 role 使用（支持 @developer 这类写法）
 				mentions = append(mentions, name)
 			}
 		}
@@ -127,10 +139,9 @@ func extractMentions(content string) []string {
 // getSenderColor 获取发送者的颜色
 func getSenderColor(from string) string {
 	role := ""
-	if r, ok := nameToRole[from]; ok {
+	if r, ok := roleForName(from); ok {
 		role = r
 	}
-	// 特殊处理 boss
 	if from == "boss" {
 		role = "boss"
 	}

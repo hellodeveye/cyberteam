@@ -24,6 +24,7 @@ var gWsManager *workspace.Manager
 var gBoss *master.Manager
 var gMeetingRoom *meeting.Room
 var gMCPManager *mcp.Manager
+var gBossProfile *profile.Profile
 
 func main() {
 	fmt.Println("🏢 CyberTeam")
@@ -82,9 +83,10 @@ func main() {
 	boss := master.NewManager(engine)
 	gBoss = boss // 设置全局变量
 
-	// 加载 Boss Profile
+	// 加载 Boss Profile（作为全局变量，供 UI 层动态读取）
 	bossProfilePath := filepath.Join(rootDir, "cmd/boss/PROFILE.md")
 	if prof, err := profile.Load(bossProfilePath); err == nil {
+		gBossProfile = prof
 		// 只取描述第一行
 		desc := strings.Split(prof.Description, "\n")[0]
 		if len(desc) > 50 {

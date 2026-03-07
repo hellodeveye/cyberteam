@@ -960,6 +960,28 @@ func (m *Manager) SetPrivateMessageCallback(callback func(staffName, content str
 	m.privateMsgCallback = callback
 }
 
+// GetNameToRoleMap 返回当前已注册 staff 的 name→role 映射（从 Registry 实时读取）
+func (m *Manager) GetNameToRoleMap() map[string]string {
+	result := make(map[string]string)
+	for _, w := range m.registry.ListAll() {
+		if w.Name != "" && w.Role != "" {
+			result[w.Name] = w.Role
+		}
+	}
+	return result
+}
+
+// GetOnlineStaffNames 返回当前在线（非 offline）staff 的名字列表
+func (m *Manager) GetOnlineStaffNames() []string {
+	var names []string
+	for _, w := range m.registry.ListAll() {
+		if w.Status != protocol.StatusOffline && w.Name != "" {
+			names = append(names, w.Name)
+		}
+	}
+	return names
+}
+
 // IsStaffOnline 检查指定角色的员工是否在线
 func (m *Manager) IsStaffOnline(role string) bool {
 	staffs := m.registry.ListByRole(role)

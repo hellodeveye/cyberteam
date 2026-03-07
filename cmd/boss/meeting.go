@@ -45,7 +45,11 @@ func handleMeetingStart(sess *session.Session, args []string) {
 
 	topic := args[0]
 	mode := meeting.ModeFree
-	participants := []string{"product", "developer", "tester"}
+	// 默认参与者：从 Registry 动态获取所有在线 staff 的 role
+	participants := getOnlineStaffRoles()
+	if len(participants) == 0 {
+		fmt.Println("⚠️ 暂无在线员工，会议将只有 Boss 参与")
+	}
 
 	// 解析参数
 	for i := 1; i < len(args); i++ {
@@ -90,9 +94,9 @@ func handleMeetingStart(sess *session.Session, args []string) {
 	fmt.Printf("👥 参与者: %s\n", strings.Join(participants, ", "))
 	fmt.Printf("📌 模式: %s\n", mode)
 	fmt.Println("\n💡 直接输入发言，或 @某人 点名:")
-	fmt.Println("   大家好           - 自由发言")
-	fmt.Println("   @Alex 评估一下  - 点名提问")
-	fmt.Println("   meeting end      - 结束会议")
+	fmt.Println("   大家好             - 自由发言")
+	printMentionHint()
+	fmt.Println("   meeting end        - 结束会议")
 }
 
 func handleMeetingList() {
@@ -221,10 +225,10 @@ func handleDirectMention(sess *session.Session, line string) {
 	// 获取会议历史
 	transcript := mtg.GetTranscript()
 
-	// 发送给所有被 @ 的人
+	// 发送给所有被 @ 的人（动态查 role）
 	for _, name := range names {
 		staffRole := name
-		if role, ok := nameToRole[name]; ok {
+		if role, ok := roleForName(name); ok {
 			staffRole = role
 		}
 		go gBoss.SendMeetingMessage(staffRole, mtg.ID, "boss", fullContent, true, transcript)
@@ -335,4 +339,30 @@ func resumeTasks(engine *workflow.Engine, boss *master.Manager) {
 	if resumed > 0 {
 		fmt.Printf("\n✅ 已恢复 %d 个任务\n\n", resumed)
 	}
+}
+
+// getOnlineStaffRoles 返回当前在线 staff 的 role 列表（去重）
+func getOnlineStaffRoles() []string {
+	if gBoss == nil {
+		return nil
+	}
+	seen := make(map[string]bool)
+	var roles []string
+	for _, w := range gBoss.GetOnlineStaffNames() {
+		if role, ok := roleForName(w); ok && !seen[role] {
+			seen[role] = true
+			roles = append(roles, role)
+		}
+	}
+	return roles
+}
+
+// printMentionHint 动态生成 @ 点名提示（取第一个在线员工名字作为示例）
+func printMentionHint() {
+	names := getOnlineStaffNames()
+	example := "<name>"
+	if len(names) > 0 {
+		example = names[0]
+	}
+	fmt.Printf("   @%-10s 问题      - 点名提问\n", example)
 }

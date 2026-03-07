@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"cyberteam/internal/session"
 )
@@ -9,21 +10,20 @@ import (
 // handleChat 处理私聊命令
 func handleChat(sess *session.Session, args []string) {
 	if len(args) < 1 {
-		fmt.Println("❌ 用法: chat <name>")
-		fmt.Println("   chat Sarah    - 和 Sarah 私聊")
-		fmt.Println("   chat Alex     - 和 Alex 私聊")
-		fmt.Println("   chat Mia      - 和 Mia 私聊")
-		fmt.Println("   ..            - 退出私聊")
+		printChatHelp()
 		return
 	}
 
 	name := args[0]
 
-	// 检查是否是有效的员工名字
-	role, ok := nameToRole[name]
+	// 从 Registry 动态查询 role（不再硬编码）
+	role, ok := roleForName(name)
 	if !ok {
 		fmt.Printf("❌ 未知员工: %s\n", name)
-		fmt.Println("   可用: Sarah, Alex, Mia")
+		online := getOnlineStaffNames()
+		if len(online) > 0 {
+			fmt.Printf("   可用: %s\n", strings.Join(online, ", "))
+		}
 		return
 	}
 
@@ -43,9 +43,7 @@ func handleChat(sess *session.Session, args []string) {
 		if pc != nil && pc.With == staffName {
 			color := getSenderColor(staffName)
 			fmt.Printf("\n%s%s%s: %s\n", color, staffName, ColorReset, content)
-			// 添加到历史记录
 			sess.AddPrivateChatMessage(staffName, content)
-			// 刷新提示符
 			fmt.Print(sess.GetPrompt())
 		}
 	})
@@ -62,22 +60,32 @@ func handlePrivateMessage(sess *session.Session, content string) {
 		return
 	}
 
-	// 获取对方 role
-	role, ok := nameToRole[pc.With]
+	// 从 Registry 动态获取 role
+	role, ok := roleForName(pc.With)
 	if !ok {
 		fmt.Println("❌ 私聊对象错误")
 		return
 	}
 
-	// 添加消息到历史
+	bossName := getBossName()
 	sess.AddPrivateChatMessage(bossName, content)
-
-	// 获取历史记录
 	history := sess.GetPrivateChatHistory()
 
-	// 发送私聊消息给 Staff（带上历史）
 	go gBoss.SendPrivateMessage(role, "boss", content, history)
 
-	// 本地显示
 	fmt.Printf("%s%s%s: %s\n", ColorPurple, bossName, ColorReset, content)
+}
+
+// printChatHelp 动态生成 chat 帮助文本
+func printChatHelp() {
+	fmt.Println("❌ 用法: chat <name>")
+	names := getOnlineStaffNames()
+	if len(names) > 0 {
+		for _, n := range names {
+			fmt.Printf("   chat %-10s - 和 %s 私聊\n", n, n)
+		}
+	} else {
+		fmt.Println("   (暂无在线员工)")
+	}
+	fmt.Println("   ..             - 退出私聊")
 }

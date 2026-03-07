@@ -163,7 +163,11 @@ func printHelp() {
 	fmt.Println("  meeting end                               结束会议")
 	fmt.Println()
 	fmt.Println("💡 提示: 进入会议后，直接输入内容即可发言")
-	fmt.Println("        @Alex 你的问题    - 点名指定人回答")
+	mentionExample := "@<name>"
+	if names := getOnlineStaffNames(); len(names) > 0 {
+		mentionExample = "@" + names[0]
+	}
+	fmt.Printf("        %-16s 你的问题  - 点名指定人回答\n", mentionExample)
 	fmt.Println("        大家好              - 自由发言（随机人回复）")
 	fmt.Println()
 	fmt.Println("💬 私聊命令:")
