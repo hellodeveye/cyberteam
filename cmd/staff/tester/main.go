@@ -12,7 +12,6 @@ import (
 	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/staffutil"
-	"cyberteam/internal/tools"
 	"cyberteam/internal/worker"
 )
 
@@ -22,6 +21,7 @@ type TesterStaff struct {
 	llmClient llm.Client
 	model     string
 	profile   *profile.Profile
+	mcpClient *staffutil.MCPClient
 }
 
 func main() {
@@ -34,6 +34,7 @@ func main() {
 		profile:   cfg.Profile,
 	}
 	staff.BaseWorker = cfg.SetupWorker("tester", staff)
+	staff.mcpClient = cfg.MCPClient
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Tester staff error: %v\n", err)
@@ -67,10 +68,9 @@ func (s *TesterStaff) writeTestPlan(task protocol.Task, resultChan chan<- protoc
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📋 分析需求，设计测试场景..."}}
 
-	var bashTool *tools.BashTool
+	var stageDir string
 	if task.WorkspaceDir != "" {
-		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
-		bashTool = tools.NewBashTool(stageDir)
+		stageDir = filepath.Join(task.WorkspaceDir, "05-test")
 	}
 
 	prompt := fmt.Sprintf(`你是资深测试工程师。请根据 PRD 和设计文档编写测试用例和测试代码。
@@ -147,12 +147,12 @@ PRD：
 	testCases, _ := output["test_cases"].([]interface{})
 	coverage, _ := output["coverage"].(string)
 
-	if bashTool != nil {
+	if stageDir != "" {
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 创建测试代码..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {
@@ -163,7 +163,7 @@ PRD：
 		}
 
 		if testCode, ok := output["test_code"].(string); ok && testCode != "" {
-			result := bashTool.WriteFile("unit/test_suite.go", []byte(testCode))
+			result := s.mcpClient.WriteBashFile("unit/test_suite.go", []byte(testCode), stageDir)
 			if result.Success {
 				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"      ✓ 写入 unit/test_suite.go"}}
 			}
@@ -203,10 +203,9 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"🔍 正在执行测试..."}}
 
-	var bashTool *tools.BashTool
+	var stageDir string
 	if task.WorkspaceDir != "" {
-		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
-		bashTool = tools.NewBashTool(stageDir)
+		stageDir = filepath.Join(task.WorkspaceDir, "05-test")
 	}
 
 	prompt := fmt.Sprintf(`你是测试执行专家。请分析代码并模拟执行测试用例，生成测试报告。
@@ -287,12 +286,12 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 		status = fmt.Sprintf("❌ 测试未通过，发现 %d 个 Bug", len(bugs))
 	}
 
-	if bashTool != nil {
+	if stageDir != "" {
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 执行测试命令..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {

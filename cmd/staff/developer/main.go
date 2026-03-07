@@ -12,7 +12,6 @@ import (
 	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/staffutil"
-	"cyberteam/internal/tools"
 	"cyberteam/internal/worker"
 )
 
@@ -22,6 +21,7 @@ type DeveloperStaff struct {
 	llmClient llm.Client
 	model     string
 	profile   *profile.Profile
+	mcpClient *staffutil.MCPClient
 }
 
 func main() {
@@ -34,6 +34,7 @@ func main() {
 		profile:   cfg.Profile,
 	}
 	staff.BaseWorker = cfg.SetupWorker("developer", staff)
+	staff.mcpClient = cfg.MCPClient
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Developer staff error: %v\n", err)
@@ -138,13 +139,12 @@ PRD：
 
 	if task.WorkspaceDir != "" {
 		stageDir := filepath.Join(task.WorkspaceDir, "02-design")
-		bashTool := tools.NewBashTool(stageDir)
 
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   6. 创建设计文档结构..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {
@@ -193,10 +193,9 @@ func (s *DeveloperStaff) implementFeature(task protocol.Task, resultChan chan<- 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   2. 设计代码结构..."}}
 	time.Sleep(300 * time.Millisecond)
 
-	var bashTool *tools.BashTool
+	var stageDir string
 	if task.WorkspaceDir != "" {
-		stageDir := filepath.Join(task.WorkspaceDir, "04-develop")
-		bashTool = tools.NewBashTool(stageDir)
+		stageDir = filepath.Join(task.WorkspaceDir, "04-develop")
 	}
 
 	prompt := fmt.Sprintf(`你是资深 %s 开发工程师。请根据设计文档和 PRD 实现代码。
@@ -263,12 +262,12 @@ PRD：
 		}
 	}
 
-	if bashTool != nil {
+	if stageDir != "" {
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 创建项目结构..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {

@@ -50,11 +50,12 @@ type Manager struct {
 type MCPManager interface {
 	StartAll() error
 	StopAll()
+	CallTool(serverName, toolName, role string, args map[string]interface{}) (*protocol.MCPCallResult, error)
 	CallToolByName(fullToolName, role string, args map[string]interface{}) (*protocol.MCPCallResult, error)
 	ListTools(role string) []protocol.MCPToolInfo
 	RegisterInternalServer(name string, server mcp.ServerInterface)
+	GetInternalServer(name string) (mcp.ServerInterface, bool)
 	CallInternalTool(serverName, toolName string, args map[string]interface{}) (*protocol.MCPCallResult, error)
-	ListInternalTools() []protocol.MCPToolInfo
 }
 
 // LogEntry 日志条目
@@ -436,15 +437,6 @@ func (m *Manager) handleMCPCall(staffID string, msg protocol.Message) {
 	tool, _ := msg.Payload["tool"].(string)
 	args, _ := msg.Payload["args"].(map[string]interface{})
 
-	// 先尝试调用外部 MCP Server
-	result, err := m.mcpManager.CallToolByName(tool, role, args)
-	if err == nil {
-		// 外部 Server 成功
-		m.sendMCPResult(staffID, msg.ID, result)
-		return
-	}
-
-	// 外部 Server 失败，尝试内置 Server
 	// 解析工具名: "server:tool" 或 "tool"
 	parts := strings.SplitN(tool, ":", 2)
 	var serverName, toolName string
@@ -453,30 +445,41 @@ func (m *Manager) handleMCPCall(staffID string, msg protocol.Message) {
 		toolName = parts[1]
 	} else {
 		toolName = parts[0]
-		// 尝试查找内置 Server
-		internalTools := m.mcpManager.ListInternalTools()
-		for _, t := range internalTools {
-			if t.Name == tool || t.Name == toolName {
-				tParts := strings.SplitN(t.Name, ":", 2)
-				if len(tParts) == 2 {
-					serverName = tParts[0]
-					toolName = tParts[1]
-				}
-				break
-			}
-		}
 	}
 
+	// 精确路由: bash 工具 → 调用者专属的 bash-<staffID> Server
+	if serverName == "bash" {
+		bashServerName := fmt.Sprintf("bash-%s", staffID)
+		result, err := m.mcpManager.CallInternalTool(bashServerName, toolName, args)
+		if err != nil {
+			m.sendMCPError(staffID, fmt.Sprintf("bash tool error: %v", err))
+			return
+		}
+		m.sendMCPResult(staffID, msg.ID, result)
+		return
+	}
+
+	// 指定了 server 名 → 先查外部，再查内置
 	if serverName != "" {
-		result, err := m.mcpManager.CallInternalTool(serverName, toolName, args)
-		if err == nil {
+		if result, err := m.mcpManager.CallTool(serverName, toolName, role, args); err == nil {
 			m.sendMCPResult(staffID, msg.ID, result)
 			return
 		}
+		if result, err := m.mcpManager.CallInternalTool(serverName, toolName, args); err == nil {
+			m.sendMCPResult(staffID, msg.ID, result)
+			return
+		}
+		m.sendMCPError(staffID, fmt.Sprintf("server not found: %s", serverName))
+		return
 	}
 
-	// 所有尝试都失败
-	m.sendMCPError(staffID, err.Error())
+	// 未指定 server → 通过工具名搜索外部 Server
+	if result, err := m.mcpManager.CallToolByName(tool, role, args); err == nil {
+		m.sendMCPResult(staffID, msg.ID, result)
+		return
+	}
+
+	m.sendMCPError(staffID, fmt.Sprintf("tool not found: %s", tool))
 }
 
 // sendMCPResult 发送 MCP 结果
@@ -510,18 +513,27 @@ func (m *Manager) handleMCPList(staffID string, msg protocol.Message) {
 	}
 
 	role := proc.Profile.Role
-	tools := m.mcpManager.ListTools(role)
+	allTools := m.mcpManager.ListTools(role)
 
-	// 添加内置工具
-	internalTools := m.mcpManager.ListInternalTools()
-	tools = append(tools, internalTools...)
+	// 添加该 Staff 自己的 bash 工具（以 bash:xxx 格式展示，隐藏 staffID）
+	bashServerName := fmt.Sprintf("bash-%s", staffID)
+	if server, ok := m.mcpManager.GetInternalServer(bashServerName); ok && server.IsReady() {
+		for _, tool := range server.Tools() {
+			allTools = append(allTools, protocol.MCPToolInfo{
+				Name:        fmt.Sprintf("bash:%s", tool.Name),
+				Server:      "bash",
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+			})
+		}
+	}
 
 	// 返回工具列表
 	resp := protocol.Message{
 		Type: protocol.MsgMCPResult,
 		ID:   msg.ID,
 		Payload: map[string]interface{}{
-			"tools": tools,
+			"tools": allTools,
 		},
 	}
 	m.sendToStaff(staffID, resp)
@@ -1097,13 +1109,17 @@ func (m *Manager) setupBashServer(proc *StaffProcess, staffID string) {
 		return
 	}
 
-	// 获取工作目录
-	workDir := m.getStaffWorkDir(staffID)
+	// 工作目录使用 workspaces 根目录，允许操作所有项目子目录
+	workDir := "workspaces"
+	if abs, err := filepath.Abs(workDir); err == nil {
+		workDir = abs
+	}
+	os.MkdirAll(workDir, 0755)
 
 	// 创建 BashTool
 	bashTool := tools.NewBashTool(workDir)
 
-	// 应用配置
+	// 应用 PROFILE.md 中的权限配置
 	if len(bashCfg.Allow) > 0 {
 		bashTool.SetAllowList(bashCfg.Allow)
 	}
@@ -1119,24 +1135,13 @@ func (m *Manager) setupBashServer(proc *StaffProcess, staffID string) {
 		bashTool.SetMaxOutput(bashCfg.MaxOutput)
 	}
 
-	// 创建 Bash MCP Server
-	serverName := fmt.Sprintf("bash-%s", proc.Role)
+	// 用 staffID 命名，确保多 Staff 同 role 时不冲突
+	serverName := fmt.Sprintf("bash-%s", staffID)
 	bashServer := mcp.NewBashServer(serverName, bashTool)
 
 	// 注册到 MCP Manager
 	if m.mcpManager != nil {
 		m.mcpManager.RegisterInternalServer(serverName, bashServer)
-		fmt.Printf("[Boss] 已为 %s 注册 Bash MCP Server: %s\n", proc.Role, serverName)
+		fmt.Printf("[Boss] 已为 %s(%s) 注册 Bash MCP Server\n", proc.Role, staffID[:8])
 	}
-}
-
-// getStaffWorkDir 获取 Staff 的工作目录
-func (m *Manager) getStaffWorkDir(staffID string) string {
-	// 使用 workspaces 目录
-	workDir := filepath.Join("workspaces", staffID)
-	if err := os.MkdirAll(workDir, 0755); err != nil {
-		// 如果创建失败，使用临时目录
-		workDir = os.TempDir()
-	}
-	return workDir
 }

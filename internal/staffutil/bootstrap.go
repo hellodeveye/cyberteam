@@ -20,6 +20,7 @@ type StaffConfig struct {
 	Model     string
 	LLMClient llm.Client
 	Profile   *profile.Profile
+	MCPClient *MCPClient // MCP 客户端（SetupWorker 后可用）
 }
 
 // ParseFlags parses common staff CLI flags and returns the config.
@@ -85,12 +86,15 @@ func (c *StaffConfig) BuildWorkerProfile(role string) *protocol.WorkerProfile {
 }
 
 // SetupWorker creates the BaseWorker and wires up meeting/private handlers.
+// After calling this, c.MCPClient is available for task handlers.
 func (c *StaffConfig) SetupWorker(role string, handler worker.Handler) *worker.BaseWorker {
 	profileData := c.BuildWorkerProfile(role)
 	bw := worker.NewBaseWorker(profileData, handler)
 
-	participant := NewMeetingParticipant(role, c.Name, c.Profile, c.LLMClient, c.Model)
 	mcpClient := NewMCPClient(bw.CallMCP)
+	c.MCPClient = mcpClient // 保存供任务处理器使用
+
+	participant := NewMeetingParticipant(role, c.Name, c.Profile, c.LLMClient, c.Model)
 	participant.MCPClient = mcpClient
 
 	bw.SetMeetingHandler(&GenericMeetingHandler{Participant: participant})

@@ -20,6 +20,68 @@ func NewMCPClient(requestFunc func(msg protocol.Message) (*protocol.Message, err
 	return &MCPClient{requestFunc: requestFunc}
 }
 
+// BashResult Bash 命令执行结果
+type BashResult struct {
+	Success bool
+	Output  string
+	Error   string
+}
+
+// ExecuteBash 通过 MCP 执行 bash 命令
+func (c *MCPClient) ExecuteBash(command, workDir string) *BashResult {
+	args := map[string]interface{}{
+		"command": command,
+	}
+	if workDir != "" {
+		args["work_dir"] = workDir
+	}
+	return c.callBashTool("bash:execute", args)
+}
+
+// WriteBashFile 通过 MCP 写入文件
+func (c *MCPClient) WriteBashFile(path string, content []byte, workDir string) *BashResult {
+	args := map[string]interface{}{
+		"path":    path,
+		"content": string(content),
+	}
+	if workDir != "" {
+		args["work_dir"] = workDir
+	}
+	return c.callBashTool("bash:write_file", args)
+}
+
+// callBashTool 调用 bash 类工具并解析结果
+func (c *MCPClient) callBashTool(tool string, args map[string]interface{}) *BashResult {
+	req := protocol.Message{
+		Type: protocol.MsgMCPCall,
+		ID:   fmt.Sprintf("mcp-%d", time.Now().UnixNano()),
+		Payload: map[string]interface{}{
+			"tool": tool,
+			"args": args,
+		},
+	}
+
+	resp, err := c.requestFunc(req)
+	if err != nil {
+		return &BashResult{Success: false, Error: err.Error()}
+	}
+
+	if resp.Type == protocol.MsgMCPError {
+		errMsg, _ := resp.Payload["error"].(string)
+		return &BashResult{Success: false, Error: errMsg}
+	}
+
+	success, _ := resp.Payload["success"].(bool)
+	result, _ := resp.Payload["result"].(string)
+	errMsg, _ := resp.Payload["error"].(string)
+
+	return &BashResult{
+		Success: success,
+		Output:  result,
+		Error:   errMsg,
+	}
+}
+
 // CallTool 调用 MCP 工具
 func (c *MCPClient) CallTool(tool string, args map[string]interface{}) (string, error) {
 	req := protocol.Message{
