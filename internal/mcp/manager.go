@@ -336,9 +336,27 @@ func (m *Manager) CallInternalTool(serverName, toolName string, args map[string]
 		}, nil
 	}
 
+	if resp.Error != nil {
+		return &protocol.MCPCallResult{
+			Success: false,
+			Error:   resp.Error.Message,
+		}, nil
+	}
+
+	// 提取内置工具的 success/error 状态
+	success := true
+	errMsg := ""
+	if s, ok := resp.Result["success"].(bool); ok {
+		success = s
+	}
+	if e, ok := resp.Result["error"].(string); ok && e != "" {
+		errMsg = e
+	}
+
 	result := m.parseToolResult(resp.Result)
 	return &protocol.MCPCallResult{
-		Success: true,
+		Success: success,
 		Result:  result,
+		Error:   errMsg,
 	}, nil
 }

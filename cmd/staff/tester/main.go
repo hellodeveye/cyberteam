@@ -1,19 +1,18 @@
 package main
 
 import (
-	"cyberteam/internal/llm"
-	"cyberteam/internal/profile"
-	"cyberteam/internal/protocol"
-	"cyberteam/internal/staffutil"
-	"cyberteam/internal/tools"
-	"cyberteam/internal/worker"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"cyberteam/internal/llm"
+	"cyberteam/internal/profile"
+	"cyberteam/internal/protocol"
+	"cyberteam/internal/staffutil"
+	"cyberteam/internal/worker"
 )
 
 // TesterStaff 测试工程师
@@ -22,81 +21,20 @@ type TesterStaff struct {
 	llmClient llm.Client
 	model     string
 	profile   *profile.Profile
+	mcpClient *staffutil.MCPClient
 }
 
 func main() {
-	var (
-		id      = flag.String("id", "", "Staff ID")
-		name    = flag.String("name", "", "Staff name")
-		apiKey  = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "OpenAI API Key")
-		baseURL = flag.String("base-url", getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"), "OpenAI Base URL")
-		model   = flag.String("model", getEnv("OPENAI_MODEL", "gpt-4o"), "LLM Model")
-	)
-	flag.Parse()
-
-	if *id == "" || *name == "" {
-		fmt.Fprintln(os.Stderr, "Usage: tester --id <id> --name <name>")
-		os.Exit(1)
-	}
-
-	// 获取执行文件所在目录
-	execPath, _ := os.Executable()
-	execDir := filepath.Dir(execPath)
-	profilePath := filepath.Join(execDir, "PROFILE.md")
-
-	// 创建 LLM 客户端（必须配置 API Key）
-	if *apiKey == "" {
-		fmt.Fprintf(os.Stderr, "错误: 未设置 OPENAI_API_KEY 环境变量\n")
-		fmt.Fprintf(os.Stderr, "请设置 API Key 后重试:\n")
-		fmt.Fprintf(os.Stderr, "  export OPENAI_API_KEY=your-api-key\n")
-		os.Exit(1)
-	}
-	llmClient := llm.NewOpenAIClient(*apiKey, *baseURL)
-
-	// 加载 Profile
-	var prof *profile.Profile
-	if p, err := profile.Load(profilePath); err == nil {
-		prof = p
-	} else {
-		// Fallback: 使用默认值
-		prof = getDefaultProfile()
-	}
-
-	profileData := &protocol.WorkerProfile{
-		ID:              *id,
-		Name:            *name,
-		Role:            "tester",
-		Version:         "1.0.0",
-		Capabilities:    buildCapabilities(prof),
-		Status:          protocol.StatusIdle,
-		Load:            0,
-		ProfileMarkdown: prof.Body,
-	}
+	cfg := staffutil.ParseFlags("tester")
+	cfg.LoadProfile(getDefaultProfile())
 
 	staff := &TesterStaff{
-		llmClient: llmClient,
-		model:     *model,
-		profile:   prof,
+		llmClient: cfg.LLMClient,
+		model:     cfg.Model,
+		profile:   cfg.Profile,
 	}
-	staff.BaseWorker = worker.NewBaseWorker(profileData, staff)
-
-	// 设置会议处理器（方案二）
-	meetingParticipant := staffutil.NewMeetingParticipant("tester", *name, prof, llmClient, *model)
-
-	// 设置 MCP 客户端
-	mcpClient := staffutil.NewMCPClient(staff.BaseWorker.CallMCP)
-	meetingParticipant.MCPClient = mcpClient
-
-	staff.BaseWorker.SetMeetingHandler(&TesterMeetingHandler{
-		Participant: meetingParticipant,
-		Name:        *name,
-	})
-
-	// 设置私聊处理器
-	staff.BaseWorker.SetPrivateHandler(&TesterPrivateHandler{
-		Participant: meetingParticipant,
-		Name:        *name,
-	})
+	staff.BaseWorker = cfg.SetupWorker("tester", staff)
+	staff.mcpClient = cfg.MCPClient
 
 	if err := staff.Run(); err != nil {
 		fmt.Fprintf(os.Stderr, "Tester staff error: %v\n", err)
@@ -125,16 +63,14 @@ func (s *TesterStaff) Handle(task protocol.Task, resultChan chan<- protocol.Task
 }
 
 func (s *TesterStaff) writeTestPlan(task protocol.Task, resultChan chan<- protocol.TaskResult, start time.Time) {
-	prd := getString(task.Inputs, "prd", "")
-	design := getString(task.Inputs, "design", "")
+	prd := staffutil.GetString(task.Inputs, "prd", "")
+	design := staffutil.GetString(task.Inputs, "design", "")
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📋 分析需求，设计测试场景..."}}
 
-	// 初始化 bash 工具
-	var bashTool *tools.BashTool
+	var stageDir string
 	if task.WorkspaceDir != "" {
-		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
-		bashTool = tools.NewBashTool(stageDir)
+		stageDir = filepath.Join(task.WorkspaceDir, "05-test")
 	}
 
 	prompt := fmt.Sprintf(`你是资深测试工程师。请根据 PRD 和设计文档编写测试用例和测试代码。
@@ -211,13 +147,12 @@ PRD：
 	testCases, _ := output["test_cases"].([]interface{})
 	coverage, _ := output["coverage"].(string)
 
-	// 执行 bash 命令创建测试代码
-	if bashTool != nil {
+	if stageDir != "" {
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 创建测试代码..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {
@@ -227,15 +162,13 @@ PRD：
 			}
 		}
 
-		// 如果生成了 test_code，也写入文件
 		if testCode, ok := output["test_code"].(string); ok && testCode != "" {
-			result := bashTool.WriteFile("unit/test_suite.go", []byte(testCode))
+			result := s.mcpClient.WriteBashFile("unit/test_suite.go", []byte(testCode), stageDir)
 			if result.Success {
 				resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"      ✓ 写入 unit/test_suite.go"}}
 			}
 		}
 
-		// 使用新的输出系统写入测试文档
 		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入测试文档..."}}
 
 		handler := staffutil.NewOutputHandler("tester", task.WorkspaceDir)
@@ -265,16 +198,14 @@ PRD：
 }
 
 func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol.TaskResult, start time.Time) {
-	code := getString(task.Inputs, "code", "")
+	code := staffutil.GetString(task.Inputs, "code", "")
 	testCasesData, _ := json.Marshal(task.Inputs["test_cases"])
 
 	resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"🔍 正在执行测试..."}}
 
-	// 初始化 bash 工具
-	var bashTool *tools.BashTool
+	var stageDir string
 	if task.WorkspaceDir != "" {
-		stageDir := filepath.Join(task.WorkspaceDir, "05-test")
-		bashTool = tools.NewBashTool(stageDir)
+		stageDir = filepath.Join(task.WorkspaceDir, "05-test")
 	}
 
 	prompt := fmt.Sprintf(`你是测试执行专家。请分析代码并模拟执行测试用例，生成测试报告。
@@ -355,13 +286,12 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 		status = fmt.Sprintf("❌ 测试未通过，发现 %d 个 Bug", len(bugs))
 	}
 
-	// 执行 bash 命令（如运行测试）
-	if bashTool != nil {
+	if stageDir != "" {
 		if commands, ok := output["commands"].([]interface{}); ok && len(commands) > 0 {
 			resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"   3. 执行测试命令..."}}
 			for _, cmd := range commands {
 				if cmdStr, ok := cmd.(string); ok && cmdStr != "" {
-					result := bashTool.Execute(cmdStr)
+					result := s.mcpClient.ExecuteBash(cmdStr, stageDir)
 					if result.Success {
 						resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{fmt.Sprintf("      $ %s", cmdStr)}}
 					} else {
@@ -371,7 +301,6 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 			}
 		}
 
-		// 使用新的输出系统写入测试报告
 		resultChan <- protocol.TaskResult{TaskID: task.ID, Logs: []string{"📝 正在写入测试报告..."}}
 
 		handler := staffutil.NewOutputHandler("tester", task.WorkspaceDir)
@@ -400,21 +329,6 @@ func (s *TesterStaff) executeTest(task protocol.Task, resultChan chan<- protocol
 	resultChan <- result
 }
 
-func getString(m map[string]any, key, defaultVal string) string {
-	if v, ok := m[key].(string); ok && v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-func getEnv(key, defaultVal string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return defaultVal
-}
-
-// getDefaultProfile 返回默认的 Profile（Fallback 用）
 func getDefaultProfile() *profile.Profile {
 	return &profile.Profile{
 		Name:        "王测试",
@@ -433,92 +347,4 @@ func getDefaultProfile() *profile.Profile {
 2. 包含正向、反向、边界测试
 3. Bug 描述清晰可复现`,
 	}
-}
-
-// buildCapabilities 从 Profile 构建能力列表
-func buildCapabilities(prof *profile.Profile) []protocol.Capability {
-	// 如果有 Profile 中定义了 capabilities，使用它们
-	if len(prof.Capabilities) > 0 {
-		caps := make([]protocol.Capability, len(prof.Capabilities))
-		for i, cap := range prof.Capabilities {
-			caps[i] = protocol.Capability{
-				Name:        cap.Name,
-				Description: cap.Description,
-				Inputs:      convertParams(cap.Inputs),
-				Outputs:     convertParams(cap.Outputs),
-				EstTime:     cap.EstTime,
-			}
-		}
-		return caps
-	}
-
-	// 默认 capabilities
-	return []protocol.Capability{
-		{
-			Name:        "write_test_plan",
-			Description: "编写测试计划和测试用例",
-			Inputs: []protocol.Param{
-				{Name: "prd", Type: "string", Required: true, Desc: "PRD 文档"},
-				{Name: "design", Type: "string", Required: true, Desc: "设计文档"},
-			},
-			Outputs: []protocol.Param{
-				{Name: "test_cases", Type: "array", Desc: "测试用例列表"},
-				{Name: "coverage", Type: "string", Desc: "覆盖率评估"},
-			},
-			EstTime: "1h",
-		},
-		{
-			Name:        "execute_test",
-			Description: "执行测试并生成报告",
-			Inputs: []protocol.Param{
-				{Name: "code", Type: "string", Required: true, Desc: "待测代码"},
-				{Name: "test_cases", Type: "array", Required: true, Desc: "测试用例"},
-			},
-			Outputs: []protocol.Param{
-				{Name: "report", Type: "object", Desc: "测试报告"},
-				{Name: "bugs", Type: "array", Desc: "发现的 Bug"},
-				{Name: "passed", Type: "bool", Desc: "是否通过"},
-			},
-			EstTime: "2h",
-		},
-	}
-}
-
-// convertParams 转换参数类型
-func convertParams(params []profile.Param) []protocol.Param {
-	if len(params) == 0 {
-		return nil
-	}
-	result := make([]protocol.Param, len(params))
-	for i, p := range params {
-		result[i] = protocol.Param{
-			Name:     p.Name,
-			Type:     p.Type,
-			Required: p.Required,
-			Desc:     p.Desc,
-		}
-	}
-	return result
-}
-
-// TesterMeetingHandler Tester 会议处理器
-type TesterMeetingHandler struct {
-	Participant *staffutil.MeetingParticipant
-	Name        string
-}
-
-// HandleMeetingMessage 处理会议消息
-func (h *TesterMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
-	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
-}
-
-// TesterPrivateHandler Tester 私聊处理器
-type TesterPrivateHandler struct {
-	Participant *staffutil.MeetingParticipant
-	Name        string
-}
-
-// HandlePrivateMessage 处理私聊消息
-func (h *TesterPrivateHandler) HandlePrivateMessage(from string, content string, history string) string {
-	return h.Participant.GenerateReply("", "私聊", history, from, content, true)
 }

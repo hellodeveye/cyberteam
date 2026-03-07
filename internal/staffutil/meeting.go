@@ -3,7 +3,6 @@ package staffutil
 import (
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
-	"cyberteam/internal/tools"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -66,9 +65,9 @@ func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, c
 		}
 	}
 
-	// 回退到本地 bash 工具
-	if mentioned && (p.Role == "developer" || p.Role == "tester") {
-		if toolResult, executed := p.AutoExecuteTool(content, "/tmp"); executed {
+	// 通过 MCP 执行 bash 命令
+	if p.MCPClient != nil && mentioned && (p.Role == "developer" || p.Role == "tester") {
+		if toolResult, executed := p.AutoExecuteTool(content); executed {
 			return p.buildToolReply(content, toolResult)
 		}
 	}
@@ -161,19 +160,16 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 	return sb.String()
 }
 
-// AutoExecuteTool 自动检测并执行工具
-func (p *MeetingParticipant) AutoExecuteTool(question string, workDir string) (string, bool) {
+// AutoExecuteTool 自动检测并通过 MCP 执行工具
+func (p *MeetingParticipant) AutoExecuteTool(question string) (string, bool) {
 	// 检测需要执行什么命令
 	cmd := p.detectCommand(question)
 	if cmd == "" {
 		return "", false
 	}
 
-	// 创建 bash 工具
-	bashTool := tools.NewBashTool(workDir)
-
-	// 执行命令
-	result := bashTool.Execute(cmd)
+	// 通过 MCP 执行 bash 命令
+	result := p.MCPClient.ExecuteBash(cmd, "")
 	if !result.Success {
 		return fmt.Sprintf("执行失败: %s", result.Error), true
 	}

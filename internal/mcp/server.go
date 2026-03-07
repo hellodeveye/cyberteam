@@ -422,8 +422,34 @@ func (s *BashServer) Tools() []Tool {
 						"type":        "string",
 						"description": "要执行的命令",
 					},
+					"work_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "执行命令的工作目录（可选，默认使用配置的工作目录）",
+					},
 				},
 				"required": []string{"command"},
+			},
+		},
+		{
+			Name:        "write_file",
+			Description: "安全写入文件到工作目录",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "相对于工作目录的文件路径",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "文件内容",
+					},
+					"work_dir": map[string]interface{}{
+						"type":        "string",
+						"description": "工作目录（可选）",
+					},
+				},
+				"required": []string{"path", "content"},
 			},
 		},
 	}
@@ -431,16 +457,50 @@ func (s *BashServer) Tools() []Tool {
 
 // CallTool 调用工具
 func (s *BashServer) CallTool(name string, args map[string]interface{}) (*JSONRPCResponse, error) {
-	if name != "execute" {
+	switch name {
+	case "execute":
+		return s.callExecute(args)
+	case "write_file":
+		return s.callWriteFile(args)
+	default:
 		return &JSONRPCResponse{
 			JSONRPC: "2.0",
-			Error:   &JSONRPCError{Code: -32601, Message: "unknown method"},
+			Error:   &JSONRPCError{Code: -32601, Message: fmt.Sprintf("unknown tool: %s", name)},
 		}, nil
 	}
+}
 
+func (s *BashServer) callExecute(args map[string]interface{}) (*JSONRPCResponse, error) {
 	cmd, _ := args["command"].(string)
-	result := s.bashTool.Execute(cmd)
+	workDir, _ := args["work_dir"].(string)
 
+	var result *tools.Result
+	if workDir != "" {
+		result = s.bashTool.ExecuteInDir(workDir, cmd)
+	} else {
+		result = s.bashTool.Execute(cmd)
+	}
+
+	return s.buildResponse(result), nil
+}
+
+func (s *BashServer) callWriteFile(args map[string]interface{}) (*JSONRPCResponse, error) {
+	path, _ := args["path"].(string)
+	content, _ := args["content"].(string)
+	workDir, _ := args["work_dir"].(string)
+
+	// 临时切换工作目录来写文件
+	if workDir != "" {
+		origTool := tools.NewBashTool(workDir)
+		result := origTool.WriteFile(path, []byte(content))
+		return s.buildResponse(result), nil
+	}
+
+	result := s.bashTool.WriteFile(path, []byte(content))
+	return s.buildResponse(result), nil
+}
+
+func (s *BashServer) buildResponse(result *tools.Result) *JSONRPCResponse {
 	return &JSONRPCResponse{
 		JSONRPC: "2.0",
 		Result: map[string]interface{}{
@@ -453,5 +513,5 @@ func (s *BashServer) CallTool(name string, args map[string]interface{}) (*JSONRP
 			"success": result.Success,
 			"error":   result.Error,
 		},
-	}, nil
+	}
 }
