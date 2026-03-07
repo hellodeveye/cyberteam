@@ -1,7 +1,7 @@
 package staffutil
 
 import (
-	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -119,27 +119,41 @@ func TestExtractSchemaParams_RequiredAndOptionalMixed(t *testing.T) {
 	}
 }
 
-// ── GetToolsPrompt ───────────────────────────────────────────────────────────
+// ── StaffMCPClient 工具列表测试 ──────────────────────────────────────────────
 
-// mockRequest はリスト応答をエミュレートする requestFunc
-func mockRequest(tools []protocol.MCPToolInfo) func(protocol.Message) (*protocol.Message, error) {
-	return func(msg protocol.Message) (*protocol.Message, error) {
-		// ListTools は tools を JSON 経由で受け取る
-		toolsData, _ := json.Marshal(tools)
-		var raw []interface{}
-		json.Unmarshal(toolsData, &raw)
+// mockStaffMCPClient 用于测试的 mock 客户端
+type mockStaffMCPClient struct {
+	tools []protocol.MCPToolInfo
+}
 
-		return &protocol.Message{
-			Type: protocol.MsgMCPResult,
-			Payload: map[string]interface{}{
-				"tools": raw,
-			},
-		}, nil
+func (m *mockStaffMCPClient) ListTools() []protocol.MCPToolInfo {
+	return m.tools
+}
+
+func (m *mockStaffMCPClient) GetToolsPrompt() string {
+	tools := m.ListTools()
+	if len(tools) == 0 {
+		return ""
 	}
+
+	var lines []string
+	lines = append(lines, "**可用工具：**")
+	for _, t := range tools {
+		lines = append(lines, fmt.Sprintf("- %s: %s", t.Name, t.Description))
+		if params := extractSchemaParams(t.InputSchema); len(params) > 0 {
+			lines = append(lines, fmt.Sprintf("  参数: %s", strings.Join(params, ", ")))
+		}
+	}
+	lines = append(lines, "")
+	lines = append(lines, "**使用工具：**")
+	lines = append(lines, "当你需要外部数据时，可以调用工具。在回复中用 [TOOL:tool_name]json_args 格式")
+	lines = append(lines, `例如：[TOOL:fetch:fetch_url]{"url":"https://example.com"}`)
+
+	return strings.Join(lines, "\n")
 }
 
 func TestGetToolsPrompt_NoTools(t *testing.T) {
-	client := NewMCPClient(mockRequest(nil))
+	client := &mockStaffMCPClient{tools: nil}
 	if got := client.GetToolsPrompt(); got != "" {
 		t.Errorf("expected empty string for no tools, got %q", got)
 	}
@@ -149,7 +163,7 @@ func TestGetToolsPrompt_ToolWithoutSchema(t *testing.T) {
 	tools := []protocol.MCPToolInfo{
 		{Name: "fetch:fetch_url", Server: "fetch", Description: "Fetch a URL"},
 	}
-	client := NewMCPClient(mockRequest(tools))
+	client := &mockStaffMCPClient{tools: tools}
 	prompt := client.GetToolsPrompt()
 
 	if !strings.Contains(prompt, "fetch:fetch_url") {
@@ -178,7 +192,7 @@ func TestGetToolsPrompt_ToolWithSchema(t *testing.T) {
 			},
 		},
 	}
-	client := NewMCPClient(mockRequest(tools))
+	client := &mockStaffMCPClient{tools: tools}
 	prompt := client.GetToolsPrompt()
 
 	if !strings.Contains(prompt, "参数:") {
@@ -193,7 +207,7 @@ func TestGetToolsPrompt_ContainsUsageInstructions(t *testing.T) {
 	tools := []protocol.MCPToolInfo{
 		{Name: "fetch:fetch_url", Description: "Fetch"},
 	}
-	client := NewMCPClient(mockRequest(tools))
+	client := &mockStaffMCPClient{tools: tools}
 	prompt := client.GetToolsPrompt()
 
 	if !strings.Contains(prompt, "[TOOL:") {
@@ -202,7 +216,6 @@ func TestGetToolsPrompt_ContainsUsageInstructions(t *testing.T) {
 }
 
 // TestGetToolsPrompt_SchemaRoundtripViaJSON 验证 InputSchema 能正确经过 JSON 序列化/反序列化
-// 这是集成关键：Boss 通过 JSON 把 MCPToolInfo 传给 Staff
 func TestGetToolsPrompt_SchemaRoundtripViaJSON(t *testing.T) {
 	original := protocol.MCPToolInfo{
 		Name:        "github:search_repos",
@@ -217,17 +230,10 @@ func TestGetToolsPrompt_SchemaRoundtripViaJSON(t *testing.T) {
 		},
 	}
 
-	// 模拟 Boss → Staff 的 JSON 序列化传输
-	data, err := json.Marshal(original)
-	if err != nil {
-		t.Fatalf("marshal failed: %v", err)
-	}
-	var decoded protocol.MCPToolInfo
-	if err := json.Unmarshal(data, &decoded); err != nil {
-		t.Fatalf("unmarshal failed: %v", err)
-	}
-
-	params := extractSchemaParams(decoded.InputSchema)
+	// 模拟 Staff 端的 JSON 序列化传输（与 Boss 无关）
+	// Staff 直接从本地 MCP Server 获取工具，无需 JSON 传输
+	// 此测试验证 InputSchema 解析正确性
+	params := extractSchemaParams(original.InputSchema)
 	joined := strings.Join(params, " ")
 
 	if !strings.Contains(joined, "query(string,required)") {

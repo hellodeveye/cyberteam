@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"cyberteam/internal/master"
-	"cyberteam/internal/mcp"
 	"cyberteam/internal/meeting"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/session"
@@ -23,7 +22,6 @@ import (
 var gWsManager *workspace.Manager
 var gBoss *master.Manager
 var gMeetingRoom *meeting.Room
-var gMCPManager *mcp.Manager
 var gBossProfile *profile.Profile
 
 func main() {
@@ -128,22 +126,7 @@ func main() {
 	gMeetingRoom = meeting.NewRoom(meetingDir)
 	fmt.Println("✅ 会议室就绪！")
 
-	// 初始化 MCP 管理器（异步启动，避免阻塞）
-	mcpConfigPath := filepath.Join(rootDir, "config", "mcp.yaml")
-	mcpManager, err := mcp.NewManager(mcpConfigPath)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "⚠️ MCP 配置加载失败: %v\n", err)
-	} else {
-		boss.SetMCPManager(mcpManager)
-		gMCPManager = mcpManager
-
-		// 异步启动 MCP Server，避免阻塞主线程
-		go func() {
-			if err := mcpManager.StartAll(); err != nil {
-				fmt.Fprintf(os.Stderr, "⚠️ MCP 启动失败: %v\n", err)
-			}
-		}()
-	}
+	// 注意：Staff 直接连接 MCP Server，不再需要 Boss 中转
 
 	// 设置事件监听（需要在 boss 创建后）
 	setupEventListeners(engine, msgQueue, sess, wsManager, boss)
@@ -241,4 +224,3 @@ func main() {
 		rl.SetPrompt(sess.GetPrompt())
 	}
 }
-

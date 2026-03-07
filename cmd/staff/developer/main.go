@@ -27,6 +27,7 @@ type DeveloperStaff struct {
 func main() {
 	cfg := staffutil.ParseFlags("developer")
 	cfg.LoadProfile(getDefaultProfile())
+	cfg.LoadMemory("") // 加载 MEMORY.md (可选共享路径留空)
 
 	staff := &DeveloperStaff{
 		llmClient: cfg.LLMClient,

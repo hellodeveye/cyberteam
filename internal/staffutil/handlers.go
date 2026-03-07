@@ -5,7 +5,18 @@ type GenericMeetingHandler struct {
 	Participant *MeetingParticipant
 }
 
-func (h *GenericMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string {
+func (h *GenericMeetingHandler) HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string, team []map[string]string) string {
+	// 将团队成员转换为 TeamMember 格式
+	if len(team) > 0 {
+		members := make([]TeamMember, len(team))
+		for i, m := range team {
+			members[i] = TeamMember{
+				Name: m["name"],
+				Role: m["role"],
+			}
+		}
+		h.Participant.SetTeamMembers(members)
+	}
 	return h.Participant.GenerateReply(meetingID, "", transcript, from, content, mentioned)
 }
 

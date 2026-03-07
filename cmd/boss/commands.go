@@ -30,7 +30,6 @@ var builtinCommands = map[string]bool{
 	"team":    true,
 	"meeting": true, "mtg": true, "m": true,
 	"chat": true, "c": true,
-	"mcp":  true,
 	"help": true, "h": true,
 	"exit": true, "quit": true,
 }
@@ -99,8 +98,6 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 		handleMeeting(sess, parts)
 	case "chat", "c":
 		handleChat(sess, parts[1:])
-	case "mcp":
-		handleMCPStatus()
 	case "help", "h":
 		printHelp()
 	case "exit", "quit":
@@ -111,32 +108,6 @@ func processInput(line string, engine *workflow.Engine, boss *master.Manager, se
 	default:
 		fmt.Println("未知命令，输入 'help' 查看帮助")
 	}
-}
-
-func handleMCPStatus() {
-	if gMCPManager == nil {
-		fmt.Println("❌ MCP 未初始化")
-		return
-	}
-
-	fmt.Println("\n🛠️ MCP 工具状态:")
-	fmt.Println(strings.Repeat("-", 40))
-
-	status := gMCPManager.GetServerStatus()
-	if len(status) == 0 {
-		fmt.Println("  无可用 MCP Server")
-		return
-	}
-
-	for name, s := range status {
-		icon := "❌"
-		if s == "ready" {
-			icon = "✅"
-		}
-		fmt.Printf("  %s %s: %s\n", icon, name, s)
-	}
-
-	fmt.Println()
 }
 
 func printHelp() {
@@ -175,7 +146,6 @@ func printHelp() {
 	fmt.Println("  ..                      退出私聊")
 	fmt.Println()
 	fmt.Println("🛠️ MCP 工具:")
-	fmt.Println("  mcp                     查看 MCP 工具状态")
 	fmt.Println()
 }
 

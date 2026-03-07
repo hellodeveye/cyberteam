@@ -136,12 +136,54 @@ tools:
       - diff
       - tee
       
-      # 其他工具
+      # 系统信息
+      - date
+      - cal
+      - uptime
+      - uname
+      - whoami
+      - hostname
+      - env
+      - printenv
+      - df
+      - du
+      - free
+      - top
+      - ps
+      - id
+
+      # 网络工具
       - curl
       - wget
+      - ping
+      - dig
+      - nslookup
+      - host
+
+      # 压缩与归档
       - tar
       - zip
       - unzip
+      - gzip
+      - gunzip
+
+      # 其他工具
+      - tree
+      - file
+      - stat
+      - md5sum
+      - sha256sum
+      - base64
+      - jq
+      - xargs
+      - tr
+      - yes
+      - seq
+      - expr
+      - bc
+      - realpath
+      - dirname
+      - basename
       
     deny:
       - sudo

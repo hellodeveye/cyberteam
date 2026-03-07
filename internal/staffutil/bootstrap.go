@@ -1,9 +1,11 @@
 package staffutil
 
 import (
+	"cyberteam/internal/agent"
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
+	"cyberteam/internal/tools"
 	"cyberteam/internal/worker"
 	"flag"
 	"fmt"
@@ -20,17 +22,28 @@ type StaffConfig struct {
 	Model     string
 	LLMClient llm.Client
 	Profile   *profile.Profile
+	Memory    agent.Memory
+	Debug     bool
+}
+
+// Debugf prints a debug message to stderr if debug mode is enabled.
+func (s *StaffConfig) Debugf(format string, args ...interface{}) {
+	if s.Debug {
+		fmt.Fprintf(os.Stderr, format+"\n", args...)
+	}
 }
 
 // ParseFlags parses common staff CLI flags and returns the config.
 // roleName is used in the usage message (e.g. "product", "developer", "tester").
 func ParseFlags(roleName string) *StaffConfig {
+	apiKey := os.Getenv("OPENAI_API_KEY")
+	baseURL := GetEnv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+	model := GetEnv("OPENAI_MODEL", "gpt-4o")
+
 	var (
-		id      = flag.String("id", "", "Staff ID")
-		name    = flag.String("name", "", "Staff name")
-		apiKey  = flag.String("api-key", os.Getenv("OPENAI_API_KEY"), "OpenAI API Key")
-		baseURL = flag.String("base-url", GetEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"), "OpenAI Base URL")
-		model   = flag.String("model", GetEnv("OPENAI_MODEL", "gpt-4o"), "LLM Model")
+		id    = flag.String("id", "", "Staff ID")
+		name  = flag.String("name", "", "Staff name")
+		debug = flag.Bool("debug", false, "Enable debug logging")
 	)
 	flag.Parse()
 
@@ -39,7 +52,7 @@ func ParseFlags(roleName string) *StaffConfig {
 		os.Exit(1)
 	}
 
-	if *apiKey == "" {
+	if apiKey == "" {
 		fmt.Fprintf(os.Stderr, "错误: 未设置 OPENAI_API_KEY 环境变量\n")
 		fmt.Fprintf(os.Stderr, "请设置 API Key 后重试:\n")
 		fmt.Fprintf(os.Stderr, "  export OPENAI_API_KEY=your-api-key\n")
@@ -49,10 +62,11 @@ func ParseFlags(roleName string) *StaffConfig {
 	return &StaffConfig{
 		ID:        *id,
 		Name:      *name,
-		APIKey:    *apiKey,
-		BaseURL:   *baseURL,
-		Model:     *model,
-		LLMClient: llm.NewOpenAIClient(*apiKey, *baseURL),
+		APIKey:    apiKey,
+		BaseURL:   baseURL,
+		Model:     model,
+		LLMClient: llm.NewOpenAIClient(apiKey, baseURL),
+		Debug:     *debug,
 	}
 }
 
@@ -68,6 +82,18 @@ func (c *StaffConfig) LoadProfile(defaultProfile *profile.Profile) {
 	} else {
 		c.Profile = defaultProfile
 	}
+}
+
+// LoadMemory loads the MEMORY.md from the executable's directory.
+// It creates a FileMemory with personal and optional shared memory paths.
+func (c *StaffConfig) LoadMemory(sharedPath string) {
+	execPath, _ := os.Executable()
+	execDir := filepath.Dir(execPath)
+	memoryPath := filepath.Join(execDir, "MEMORY.md")
+
+	// Create FileMemory with personal and shared paths
+	m := agent.NewFileMemoryWithPaths(memoryPath, sharedPath)
+	c.Memory = m
 }
 
 // BuildWorkerProfile creates a protocol.WorkerProfile from the config.
@@ -89,9 +115,23 @@ func (c *StaffConfig) SetupWorker(role string, handler worker.Handler) *worker.B
 	profileData := c.BuildWorkerProfile(role)
 	bw := worker.NewBaseWorker(profileData, handler)
 
-	participant := NewMeetingParticipant(role, c.Name, c.Profile, c.LLMClient, c.Model)
-	mcpClient := NewMCPClient(bw.CallMCP)
-	participant.MCPClient = mcpClient
+	participant := NewMeetingParticipant(role, c.Name, c.Profile, c.LLMClient, c.Model, c.Memory, c.Debug)
+
+	// 直接连接 MCP Server
+	mcpClient, err := NewStaffMCPClient(GetEnv("MCP_CONFIG_PATH", "config/mcp.yaml"), role)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[Staff] 初始化 MCP 客户端失败: %v\n", err)
+	} else if mcpClient != nil {
+		participant.MCPClient = mcpClient
+	}
+
+	// 初始化 Bash 工具
+	if c.Profile.Tools.Bash != nil && c.Profile.Tools.Bash.Enabled {
+		bashTool := tools.NewBashToolWithLists(".", c.Profile.Tools.Bash.Allow, c.Profile.Tools.Bash.Deny)
+		participant.BashTool = bashTool
+		fmt.Fprintf(os.Stderr, "[Staff] Bash 工具已启用, allow=%d deny=%d\n",
+			len(c.Profile.Tools.Bash.Allow), len(c.Profile.Tools.Bash.Deny))
+	}
 
 	bw.SetMeetingHandler(&GenericMeetingHandler{Participant: participant})
 	bw.SetPrivateHandler(&GenericPrivateHandler{Participant: participant})

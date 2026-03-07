@@ -17,8 +17,10 @@ type Client interface {
 
 // Message 对话消息
 type Message struct {
-	Role    string `json:"role"` // system/user/assistant
-	Content string `json:"content"`
+	Role       string     `json:"role"` // system/user/assistant/tool
+	Content    string     `json:"content"`
+	ToolCallID string     `json:"tool_call_id,omitempty"` // Function calling 所需
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`   // Assistant 消息中的工具调用
 }
 
 // CompleteOptions 请求选项
@@ -27,6 +29,27 @@ type CompleteOptions struct {
 	Temperature float64
 	MaxTokens   int
 	Stream      bool
+	Tools       []ToolDef // Function calling 工具定义
+}
+
+// ToolDef 函数调用工具定义
+type ToolDef struct {
+	Type     string `json:"type"`
+	Function struct {
+		Name        string `json:"name"`
+		Description string `json:"description"`
+		Parameters  any    `json:"parameters"`
+	} `json:"function"`
+}
+
+// ToolCall 工具调用
+type ToolCall struct {
+	ID       string `json:"id"`
+	Type     string `json:"type"`
+	Function struct {
+		Name      string `json:"name"`
+		Arguments string `json:"arguments"`
+	} `json:"function"`
 }
 
 // Response LLM 响应
@@ -34,6 +57,7 @@ type Response struct {
 	Content      string
 	Usage        Usage
 	FinishReason string
+	ToolCalls    []ToolCall // Function calling 返回的工具调用
 }
 
 // Usage Token 使用情况
@@ -93,6 +117,11 @@ func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Res
 		"stream":      false,
 	}
 
+	// 添加 function calling 工具
+	if len(opts.Tools) > 0 {
+		reqBody["tools"] = opts.Tools
+	}
+
 	jsonData, err := json.Marshal(reqBody)
 	if err != nil {
 		return nil, fmt.Errorf("marshal request: %w", err)
@@ -123,8 +152,12 @@ func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Res
 
 	var result struct {
 		Choices []struct {
-			Message      Message `json:"message"`
-			FinishReason string  `json:"finish_reason"`
+			Message struct {
+				Role      string     `json:"role"`
+				Content   string     `json:"content"`
+				ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+			} `json:"message"`
+			FinishReason string `json:"finish_reason"`
 		} `json:"choices"`
 		Usage struct {
 			PromptTokens     int `json:"prompt_tokens"`
@@ -141,9 +174,16 @@ func (c *OpenAIClient) Complete(messages []Message, opts *CompleteOptions) (*Res
 		return nil, fmt.Errorf("no choices in response")
 	}
 
+	// 提取 tool_calls（从 message 内部）
+	var toolCalls []ToolCall
+	if len(result.Choices[0].Message.ToolCalls) > 0 {
+		toolCalls = result.Choices[0].Message.ToolCalls
+	}
+
 	return &Response{
 		Content:      result.Choices[0].Message.Content,
 		FinishReason: result.Choices[0].FinishReason,
+		ToolCalls:    toolCalls,
 		Usage: Usage{
 			PromptTokens:     result.Usage.PromptTokens,
 			CompletionTokens: result.Usage.CompletionTokens,

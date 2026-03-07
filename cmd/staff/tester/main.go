@@ -27,6 +27,7 @@ type TesterStaff struct {
 func main() {
 	cfg := staffutil.ParseFlags("tester")
 	cfg.LoadProfile(getDefaultProfile())
+	cfg.LoadMemory("")
 
 	staff := &TesterStaff{
 		llmClient: cfg.LLMClient,

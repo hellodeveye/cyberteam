@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"sync"
 	"time"
 
 	"cyberteam/internal/protocol"
@@ -27,10 +26,6 @@ type BaseWorker struct {
 	stdout io.Writer
 	stderr io.Writer
 
-	// MCP 调用等待通道
-	mcpPending map[string]chan *protocol.Message
-	mcpMu      sync.RWMutex
-
 	// 消息处理器（替代全局变量）
 	meetingHandler MeetingMessageHandler
 	privateHandler PrivateMessageHandler
@@ -39,12 +34,11 @@ type BaseWorker struct {
 // NewBaseWorker 创建员工
 func NewBaseWorker(profile *protocol.WorkerProfile, handler Handler) *BaseWorker {
 	return &BaseWorker{
-		Profile:    profile,
-		Handler:    handler,
-		stdin:      os.Stdin,
-		stdout:     os.Stdout,
-		stderr:     os.Stderr,
-		mcpPending: make(map[string]chan *protocol.Message),
+		Profile: profile,
+		Handler: handler,
+		stdin:   os.Stdin,
+		stdout:  os.Stdout,
+		stderr:  os.Stderr,
 	}
 }
 
@@ -103,16 +97,13 @@ func (w *BaseWorker) handleMessage(msg protocol.Message) error {
 		return w.handleMeetingMessage(msg)
 	case protocol.MsgPrivate:
 		return w.handlePrivateMessage(msg)
-	case protocol.MsgMCPResult:
-		w.handleMCPResult(msg)
-		return nil
 	}
 	return nil
 }
 
 // MeetingMessageHandler 会议消息处理器
 type MeetingMessageHandler interface {
-	HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string) string
+	HandleMeetingMessage(meetingID string, from string, content string, mentioned bool, transcript string, team []map[string]string) string
 }
 
 // SetMeetingHandler 设置会议处理器（实例方法）
@@ -131,10 +122,11 @@ func (w *BaseWorker) handleMeetingMessage(msg protocol.Message) error {
 	from, _ := payload["from"].(string)
 	content, _ := payload["content"].(string)
 	mentioned, _ := payload["mentioned"].(bool)
-	transcript, _ := payload["transcript"].(string) // 获取会议历史
+	transcript, _ := payload["transcript"].(string)  // 获取会议历史
+	team, _ := payload["team"].([]map[string]string) // 获取团队成员列表
 
-	// 生成回复（传入历史记录）
-	reply := w.meetingHandler.HandleMeetingMessage(meetingID, from, content, mentioned, transcript)
+	// 生成回复（传入历史记录和团队成员）
+	reply := w.meetingHandler.HandleMeetingMessage(meetingID, from, content, mentioned, transcript, team)
 	if reply == "" {
 		return nil
 	}
@@ -185,52 +177,6 @@ func (w *BaseWorker) handlePrivateMessage(msg protocol.Message) error {
 			"content": reply,
 		},
 	})
-}
-
-// CallMCP 同步调用 MCP 工具
-func (w *BaseWorker) CallMCP(msg protocol.Message) (*protocol.Message, error) {
-	reqID := generateID()
-	req := protocol.Message{
-		Type:    protocol.MsgMCPCall,
-		ID:      reqID,
-		Payload: msg.Payload,
-	}
-
-	// 创建等待通道
-	respChan := make(chan *protocol.Message, 1)
-	w.mcpMu.Lock()
-	w.mcpPending[reqID] = respChan
-	w.mcpMu.Unlock()
-
-	defer func() {
-		w.mcpMu.Lock()
-		delete(w.mcpPending, reqID)
-		w.mcpMu.Unlock()
-	}()
-
-	// 发送请求
-	if err := w.send(req); err != nil {
-		return nil, err
-	}
-
-	// 等待响应
-	select {
-	case resp := <-respChan:
-		return resp, nil
-	case <-time.After(30 * time.Second):
-		return nil, fmt.Errorf("mcp call timeout")
-	}
-}
-
-// handleMCPResult 处理 MCP 调用结果
-func (w *BaseWorker) handleMCPResult(msg protocol.Message) {
-	w.mcpMu.RLock()
-	ch, ok := w.mcpPending[msg.ID]
-	w.mcpMu.RUnlock()
-
-	if ok {
-		ch <- &msg
-	}
 }
 
 // handleAssign 处理任务分配

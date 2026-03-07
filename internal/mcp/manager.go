@@ -174,11 +174,14 @@ func (m *Manager) ListTools(role string) []protocol.MCPToolInfo {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	m.logger("[MCP] ListTools() 开始, role=%s, servers数量=%d", role, len(m.servers))
+
 	var tools []protocol.MCPToolInfo
 
 	for serverName, server := range m.servers {
 		serverConfig, ok := m.config.Servers[serverName]
 		if !ok || !serverConfig.Enabled {
+			m.logger("[MCP] ListTools() 跳过 server %s: 未启用", serverName)
 			continue
 		}
 
@@ -191,8 +194,11 @@ func (m *Manager) ListTools(role string) []protocol.MCPToolInfo {
 			}
 		}
 		if !roleAllowed {
+			m.logger("[MCP] ListTools() 跳过 server %s: 角色 %s 无权限", serverName, role)
 			continue
 		}
+
+		m.logger("[MCP] ListTools() 处理 server %s, tools数量=%d", serverName, len(server.Tools))
 
 		// 添加该 Server 的工具
 		for _, tool := range server.Tools {
@@ -210,6 +216,7 @@ func (m *Manager) ListTools(role string) []protocol.MCPToolInfo {
 		}
 	}
 
+	m.logger("[MCP] ListTools() 完成, 返回工具数=%d", len(tools))
 	return tools
 }
 

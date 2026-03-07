@@ -24,6 +24,7 @@ type ProductStaff struct {
 func main() {
 	cfg := staffutil.ParseFlags("product")
 	cfg.LoadProfile(getDefaultProfile())
+	cfg.LoadMemory("")
 
 	staff := &ProductStaff{
 		llmClient: cfg.LLMClient,

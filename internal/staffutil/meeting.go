@@ -1,37 +1,63 @@
 package staffutil
 
 import (
+	"cyberteam/internal/agent"
 	"cyberteam/internal/llm"
 	"cyberteam/internal/profile"
 	"cyberteam/internal/tools"
 	"encoding/json"
 	"fmt"
-	"regexp"
+	"os"
 	"strings"
 )
 
+// TeamMember represents a team member in the organization
+type TeamMember struct {
+	Name string `json:"name"`
+	Role string `json:"role"`
+}
+
 // MeetingParticipant Staff 会议参与者
 type MeetingParticipant struct {
-	Role      string
-	Name      string
-	Profile   *profile.Profile
-	LLMClient llm.Client
-	Model     string
-	MCPClient *MCPClient // MCP 客户端
+	Role        string
+	Name        string
+	Profile     *profile.Profile
+	LLMClient   llm.Client
+	Model       string
+	MCPClient   *StaffMCPClient // MCP 客户端
+	BashTool    *tools.BashTool // Bash 工具
+	Memory      agent.Memory    // 记忆系统
+	TeamMembers []TeamMember    // 团队成员列表（动态获取）
+	Debug       bool            // Debug 模式
 }
 
 // NewMeetingParticipant 创建会议参与者
-func NewMeetingParticipant(role, name string, profile *profile.Profile, llmClient llm.Client, model string) *MeetingParticipant {
+func NewMeetingParticipant(role, name string, profile *profile.Profile, llmClient llm.Client, model string, memory agent.Memory, debug bool) *MeetingParticipant {
 	return &MeetingParticipant{
-		Role:      role,
-		Name:      name,
-		Profile:   profile,
-		LLMClient: llmClient,
-		Model:     model,
+		Role:        role,
+		Name:        name,
+		Profile:     profile,
+		LLMClient:   llmClient,
+		Model:       model,
+		Memory:      memory,
+		TeamMembers: []TeamMember{},
+		Debug:       debug,
 	}
 }
 
-// GenerateReply 生成会议回复（支持自动工具执行）
+// SetTeamMembers 设置团队成员列表
+func (p *MeetingParticipant) SetTeamMembers(members []TeamMember) {
+	p.TeamMembers = members
+}
+
+// Debugf prints a debug message if debug mode is enabled
+func (p *MeetingParticipant) Debugf(format string, args ...interface{}) {
+	if p.Debug {
+		fmt.Fprintf(os.Stderr, format, args...)
+	}
+}
+
+// GenerateReply 生成会议回复（使用 Agent）
 func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, content string, mentioned bool) string {
 	// 构建系统提示
 	systemPrompt := p.buildSystemPrompt()
@@ -39,64 +65,66 @@ func (p *MeetingParticipant) GenerateReply(meetingID, topic, transcript, from, c
 	// 构建用户提示
 	userPrompt := p.buildUserPrompt(topic, transcript, from, content, mentioned)
 
-	// 调用 LLM
-	resp, err := p.LLMClient.Complete([]llm.Message{
-		{Role: "system", Content: systemPrompt},
-		{Role: "user", Content: userPrompt},
-	}, &llm.CompleteOptions{
-		Model:       p.Model,
-		Temperature: 0.7,
-		MaxTokens:   500,
+	// 创建 MCP 适配器
+	var mcpExecutor agent.ToolExecutor
+	if p.MCPClient != nil {
+		mcpExecutor = &MCPAdapter{Client: p.MCPClient}
+	}
+
+	// 创建 Bash 适配器
+	var bashExecutor agent.ToolExecutor
+	if p.BashTool != nil {
+		bashExecutor = &BashAdapter{Tool: p.BashTool}
+	}
+
+	// 创建 Agent (传入 Memory、MCP 和 Bash)
+	coreAgent := agent.New(agent.Config{
+		Name:         p.Name,
+		Model:        p.Model,
+		LLMClient:    p.LLMClient,
+		MCPExecutor:  mcpExecutor,
+		BashExecutor: bashExecutor,
+		Memory:       p.Memory,
+		SystemPrompt: systemPrompt,
 	})
 
-	if err != nil {
-		return p.fallbackReply(mentioned)
-	}
-
-	reply := resp.Content
-
-	// 检查是否需要调用 MCP 工具
-	if p.MCPClient != nil && mentioned {
-		if toolName, args, ok := parseToolCall(reply); ok {
-			result, err := p.MCPClient.CallTool(toolName, args)
-			if err == nil && result != "" {
-				// 将工具结果附加到回复中
-				return fmt.Sprintf("%s\n\n[工具查询结果]\n%s", reply, result)
+	// 注册 MCP 工具到 Agent 的 ToolRegistry
+	if p.MCPClient != nil {
+		registry := coreAgent.ToolRegistry()
+		mcpTools := p.MCPClient.ListTools()
+		p.Debugf("[Agent] 注册 %d 个 MCP 工具\n", len(mcpTools))
+		for _, t := range mcpTools {
+			p.Debugf("[Agent]   - %s\n", t.Name)
+			// 将 InputSchema (map) 转为 json.RawMessage
+			var schema json.RawMessage
+			if t.InputSchema != nil {
+				schema, _ = json.Marshal(t.InputSchema)
 			}
+			registry.Register(agent.Tool{
+				Name:        t.Name,
+				Description: t.Description,
+				InputSchema: schema,
+				Executor:    "mcp",
+			})
 		}
 	}
 
-	// 回退到本地 bash 工具
-	if mentioned && (p.Role == "developer" || p.Role == "tester") {
-		if toolResult, executed := p.AutoExecuteTool(content, "/tmp"); executed {
-			return p.buildToolReply(content, toolResult)
-		}
+	// 注册 Bash 工具
+	if p.BashTool != nil {
+		registry := coreAgent.ToolRegistry()
+		registry.Register(agent.Tool{
+			Name:        "bash:execute",
+			Description: "执行 bash 命令（如 ls, cat, go build, git status 等）",
+			InputSchema: json.RawMessage(`{"type":"object","properties":{"command":{"type":"string","description":"要执行的 bash 命令"}},"required":["command"]}`),
+			Executor:    "bash",
+		})
+		p.Debugf("[Agent]   - bash:execute\n")
 	}
 
-	return reply
-}
-
-// parseToolCall 解析 LLM 回复中的工具调用
-// 格式: [TOOL:server:tool]{json_args}
-func parseToolCall(reply string) (string, map[string]interface{}, bool) {
-	re := regexp.MustCompile(`\[TOOL:([^\]]+)\]\s*(\{[^\}]+\})`)
-	matches := re.FindStringSubmatch(reply)
-	if len(matches) < 3 {
-		return "", nil, false
-	}
-
-	toolName := matches[1]
-	var args map[string]interface{}
-	if err := json.Unmarshal([]byte(matches[2]), &args); err != nil {
-		return "", nil, false
-	}
-
-	return toolName, args, true
-}
-
-// buildToolReply 构建带工具结果的回复
-func (p *MeetingParticipant) buildToolReply(question, toolResult string) string {
-	return fmt.Sprintf("我来验证一下...\n%s", toolResult)
+	// 使用 Agent 执行（带上下文）
+	result := coreAgent.ExecuteWithContext(transcript, userPrompt)
+	p.Debugf("[Agent] 最终回复: %s\n", result)
+	return result
 }
 
 func (p *MeetingParticipant) buildSystemPrompt() string {
@@ -105,13 +133,22 @@ func (p *MeetingParticipant) buildSystemPrompt() string {
 		toolsInfo = p.MCPClient.GetToolsPrompt()
 	}
 
+	// 构建团队成员列表
+	teamInfo := p.buildTeamInfo()
+
+	// 构建工具使用指南
+	var toolsGuide strings.Builder
+	if toolsInfo != "" {
+		toolsGuide.WriteString(toolsInfo)
+		toolsGuide.WriteString("\n\n")
+	}
+	toolsGuide.WriteString("**工具使用原则：**\n")
+	toolsGuide.WriteString("- 优先使用 bash:execute 工具解决问题（查文件、看代码、执行命令、查系统信息等）\n")
+	toolsGuide.WriteString("- 不要猜测或编造答案，能用工具验证的就用工具\n")
+
 	return fmt.Sprintf(`你是%s，%s。
 
-团队成员：
-- Kai：团队负责人（Boss）
-- Sarah：产品经理
-- Alex：开发工程师
-- Mia：测试工程师
+%s
 
 %s
 
@@ -122,7 +159,21 @@ func (p *MeetingParticipant) buildSystemPrompt() string {
 - 简短有力，像日常对话
 - 根据对方身份调整语气（对Boss尊重但不必拘谨，对同事随意）
 
-回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description, toolsInfo)
+回复格式：直接输出你的发言内容，不要加引号或其他格式。`, p.Name, p.Profile.Description, teamInfo, toolsGuide.String())
+}
+
+// buildTeamInfo 构建团队成员信息
+func (p *MeetingParticipant) buildTeamInfo() string {
+	if len(p.TeamMembers) == 0 {
+		return "团队成员：（暂未获取到团队信息）"
+	}
+
+	var sb strings.Builder
+	sb.WriteString("团队成员：\n")
+	for _, m := range p.TeamMembers {
+		sb.WriteString(fmt.Sprintf("- %s：%s\n", m.Name, m.Role))
+	}
+	return sb.String()
 }
 
 func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content string, mentioned bool) string {
@@ -161,82 +212,6 @@ func (p *MeetingParticipant) buildUserPrompt(topic, transcript, from, content st
 	return sb.String()
 }
 
-// AutoExecuteTool 自动检测并执行工具
-func (p *MeetingParticipant) AutoExecuteTool(question string, workDir string) (string, bool) {
-	// 检测需要执行什么命令
-	cmd := p.detectCommand(question)
-	if cmd == "" {
-		return "", false
-	}
-
-	// 创建 bash 工具
-	bashTool := tools.NewBashTool(workDir)
-
-	// 执行命令
-	result := bashTool.Execute(cmd)
-	if !result.Success {
-		return fmt.Sprintf("执行失败: %s", result.Error), true
-	}
-
-	// 截断输出（避免太长）
-	output := result.Output
-	if len(output) > 500 {
-		output = output[:500] + "\n... (已截断)"
-	}
-
-	return fmt.Sprintf("执行结果:\n```\n%s\n```", output), true
-}
-
-// detectCommand 检测需要执行的命令
-func (p *MeetingParticipant) detectCommand(question string) string {
-	// 转换为小写方便匹配
-	q := strings.ToLower(question)
-
-	// 匹配 curl 请求
-	if matched, _ := regexp.MatchString(`(访问|curl|http|网站|网址).*`, q); matched {
-		// 提取 URL
-		urlRegex := regexp.MustCompile(`(https?://[^\s]+|[^\s]+\.(com|cn|org|net|io)[^\s]*)`)
-		if matches := urlRegex.FindStringSubmatch(question); len(matches) > 0 {
-			url := matches[0]
-			// 如果没有协议，添加 http
-			if !strings.HasPrefix(url, "http") {
-				url = "http://" + url
-			}
-			return fmt.Sprintf("curl -s -I -m 5 %s | head -20", url)
-		}
-	}
-
-	// 匹配 ping 请求
-	if matched, _ := regexp.MatchString(`(ping|连通性|通不通|能否连接)`, q); matched {
-		hostRegex := regexp.MustCompile(`(baidu\.com|google\.com|github\.com|[\w\-]+\.(com|cn|org))`)
-		if matches := hostRegex.FindStringSubmatch(question); len(matches) > 0 {
-			return fmt.Sprintf("ping -c 1 -W 3 %s", matches[0])
-		}
-	}
-
-	// 匹配文件/目录查询
-	if matched, _ := regexp.MatchString(`(有什么文件|目录|列出|ls|文件列表)`, q); matched {
-		return "ls -la"
-	}
-
-	// 匹配磁盘/空间查询
-	if matched, _ := regexp.MatchString(`(磁盘|空间|df|容量)`, q); matched {
-		return "df -h"
-	}
-
-	// 匹配内存查询
-	if matched, _ := regexp.MatchString(`(内存|memory|free)`, q); matched {
-		return "free -h"
-	}
-
-	// 匹配进程查询
-	if matched, _ := regexp.MatchString(`(进程|process|\bps\b|运行中)`, q); matched {
-		return "ps aux | head -10"
-	}
-
-	return ""
-}
-
 func (p *MeetingParticipant) fallbackReply(mentioned bool) string {
 	replies := []string{
 		"同意这个观点。",
@@ -257,62 +232,4 @@ func (p *MeetingParticipant) fallbackReply(mentioned bool) string {
 		return "测试覆盖没问题，可以考虑。"
 	}
 	return replies[0]
-}
-
-// tryMCPCall 尝试使用 MCP 工具
-func (p *MeetingParticipant) tryMCPCall(question string) (string, bool) {
-	if p.MCPClient == nil {
-		return "", false
-	}
-
-	q := strings.ToLower(question)
-
-	// 匹配 GitHub 查询
-	if matched, _ := regexp.MatchString(`(github|开源|仓库|repo)`, q); matched {
-		// 提取查询关键词
-		keywords := extractKeywords(question)
-		if keywords != "" {
-			result, err := p.MCPClient.CallTool("github:search_repositories", map[string]interface{}{
-				"query": keywords,
-			})
-			if err == nil && result != "" {
-				return result, true
-			}
-		}
-	}
-
-	// 匹配网页抓取
-	if matched, _ := regexp.MatchString(`(网站|官网|网页|文档|doc)`, q); matched {
-		url := extractURL(question)
-		if url != "" {
-			result, err := p.MCPClient.CallTool("fetch:fetch_url", map[string]interface{}{
-				"url": url,
-			})
-			if err == nil && result != "" {
-				return result, true
-			}
-		}
-	}
-
-	return "", false
-}
-
-// extractKeywords 提取查询关键词
-func extractKeywords(text string) string {
-	// 简单实现：去掉常见词，返回剩余内容
-	words := []string{"github", "开源", "仓库", "repo", "查", "找", "下", "一下"}
-	result := text
-	for _, w := range words {
-		result = strings.ReplaceAll(result, w, "")
-	}
-	return strings.TrimSpace(result)
-}
-
-// extractURL 从文本提取 URL
-func extractURL(text string) string {
-	urlRegex := regexp.MustCompile(`(https?://[^\s]+)`)
-	if matches := urlRegex.FindStringSubmatch(text); len(matches) > 0 {
-		return matches[0]
-	}
-	return ""
 }

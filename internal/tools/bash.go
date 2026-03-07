@@ -58,6 +58,29 @@ func NewBashTool(workDir string) *BashTool {
 	}
 }
 
+// NewBashToolWithLists 使用自定义命令白名单和黑名单创建 BashTool
+func NewBashToolWithLists(workDir string, allow, deny []string) *BashTool {
+	bt := &BashTool{
+		workDir:   workDir,
+		timeout:   30 * time.Second,
+		maxOutput: 1024 * 1024,
+		history:   make([]CommandRecord, 0),
+	}
+	if len(allow) > 0 {
+		bt.allowedCmds = make(map[string]bool, len(allow))
+		for _, cmd := range allow {
+			bt.allowedCmds[cmd] = true
+		}
+	} else {
+		bt.allowedCmds = defaultAllowedCommands()
+	}
+	bt.blockedCmds = defaultBlockedCommands()
+	for _, cmd := range deny {
+		bt.blockedCmds[cmd] = true
+	}
+	return bt
+}
+
 // Execute 执行命令（安全检查）
 func (b *BashTool) Execute(command string) *Result {
 	return b.ExecuteInDir(b.workDir, command)
@@ -170,9 +193,14 @@ func (b *BashTool) parseCommand(command string) (string, []string, error) {
 
 // validateCommand 验证命令安全
 func (b *BashTool) validateCommand(cmd string, args []string) error {
-	// 检查禁止命令
+	// 检查禁止命令（黑名单）
 	if b.blockedCmds[cmd] {
 		return fmt.Errorf("command '%s' is blocked", cmd)
+	}
+
+	// 检查允许命令（白名单）
+	if len(b.allowedCmds) > 0 && !b.allowedCmds[cmd] {
+		return fmt.Errorf("command '%s' is not allowed", cmd)
 	}
 
 	// 检查参数中的危险模式
