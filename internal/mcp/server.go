@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"cyberteam/internal/tools"
 )
 
 // ServerInstance 运行的 MCP Server 实例
@@ -364,4 +366,92 @@ func getString(m map[string]interface{}, key string) string {
 // generateID 生成唯一 ID
 func generateID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+// BashServer 内置 Bash MCP Server（轻量包装）
+type BashServer struct {
+	name     string
+	bashTool *tools.BashTool
+	mu       sync.RWMutex
+	ready    bool
+	pending  map[string]chan *JSONRPCResponse
+}
+
+// NewBashServer 创建 Bash MCP Server
+func NewBashServer(name string, bashTool *tools.BashTool) *BashServer {
+	return &BashServer{
+		name:     name,
+		bashTool: bashTool,
+		ready:    true,
+		pending:  make(map[string]chan *JSONRPCResponse),
+	}
+}
+
+// Name 返回 Server 名称
+func (s *BashServer) Name() string {
+	return s.name
+}
+
+// Start 启动 Server（内置 Server 不需要启动）
+func (s *BashServer) Start() error {
+	return nil
+}
+
+// Stop 停止 Server
+func (s *BashServer) Stop() error {
+	return nil
+}
+
+// IsReady 是否就绪
+func (s *BashServer) IsReady() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.ready
+}
+
+// Tools 返回工具列表
+func (s *BashServer) Tools() []Tool {
+	return []Tool{
+		{
+			Name:        "execute",
+			Description: "执行 shell 命令（基于 PROFILE.md 中的 allow/deny 列表进行安全检查）",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"command": map[string]interface{}{
+						"type":        "string",
+						"description": "要执行的命令",
+					},
+				},
+				"required": []string{"command"},
+			},
+		},
+	}
+}
+
+// CallTool 调用工具
+func (s *BashServer) CallTool(name string, args map[string]interface{}) (*JSONRPCResponse, error) {
+	if name != "execute" {
+		return &JSONRPCResponse{
+			JSONRPC: "2.0",
+			Error:   &JSONRPCError{Code: -32601, Message: "unknown method"},
+		}, nil
+	}
+
+	cmd, _ := args["command"].(string)
+	result := s.bashTool.Execute(cmd)
+
+	return &JSONRPCResponse{
+		JSONRPC: "2.0",
+		Result: map[string]interface{}{
+			"content": []map[string]interface{}{
+				{
+					"type": "text",
+					"text": result.Output,
+				},
+			},
+			"success": result.Success,
+			"error":   result.Error,
+		},
+	}, nil
 }

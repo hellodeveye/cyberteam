@@ -13,8 +13,11 @@ import (
 	"time"
 
 	"cyberteam/internal/common"
+	"cyberteam/internal/mcp"
+	"cyberteam/internal/profile"
 	"cyberteam/internal/protocol"
 	"cyberteam/internal/registry"
+	"cyberteam/internal/tools"
 	"cyberteam/internal/workflow"
 	"cyberteam/internal/workspace"
 )
@@ -49,6 +52,9 @@ type MCPManager interface {
 	StopAll()
 	CallToolByName(fullToolName, role string, args map[string]interface{}) (*protocol.MCPCallResult, error)
 	ListTools(role string) []protocol.MCPToolInfo
+	RegisterInternalServer(name string, server mcp.ServerInterface)
+	CallInternalTool(serverName, toolName string, args map[string]interface{}) (*protocol.MCPCallResult, error)
+	ListInternalTools() []protocol.MCPToolInfo
 }
 
 // LogEntry 日志条目
@@ -60,11 +66,12 @@ type LogEntry struct {
 }
 
 type StaffProcess struct {
-	Profile *protocol.WorkerProfile
-	Cmd     *exec.Cmd
-	Stdin   io.WriteCloser
-	Stdout  io.ReadCloser
-	Role    string
+	Profile      *protocol.WorkerProfile // 运行时 profile（Staff 发送）
+	StaticProfile *profile.Profile        // 静态 PROFILE.md 配置
+	Cmd          *exec.Cmd
+	Stdin        io.WriteCloser
+	Stdout       io.ReadCloser
+	Role         string
 }
 
 // NewManager 创建项目经理
@@ -187,20 +194,21 @@ func (m *Manager) DiscoverStaffs(staffRootDir string) ([]string, error) {
 			continue
 		}
 
-		// 从 PROFILE.md 读取 name
-		name := m.extractNameFromProfile(profilePath, role)
-		if name == "" {
-			name = role // 默认使用 role 作为 name
+		// 加载完整 PROFILE.md
+		prof, err := profile.Load(profilePath)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "[Boss] 加载 Profile %s 失败: %v\n", role, err)
+			continue
 		}
 
 		// 招聘员工
-		if _, err := m.HireStaff(role, name, binaryPath); err != nil {
+		if _, err := m.HireStaff(role, prof.Name, binaryPath, prof); err != nil {
 			fmt.Fprintf(os.Stderr, "[Boss] 发现员工 %s 失败: %v\n", role, err)
 			continue
 		}
 
 		discovered = append(discovered, role)
-		fmt.Printf("   👤 %s - %s\n", name, role)
+		fmt.Printf("   👤 %s - %s\n", prof.Name, role)
 	}
 
 	return discovered, nil
@@ -234,7 +242,7 @@ func (m *Manager) extractNameFromProfile(profilePath, defaultName string) string
 }
 
 // HireStaff 招聘员工
-func (m *Manager) HireStaff(role, name, binaryPath string) (*protocol.WorkerProfile, error) {
+func (m *Manager) HireStaff(role, name, binaryPath string, staticProfile *profile.Profile) (*protocol.WorkerProfile, error) {
 	staffID := fmt.Sprintf("%s-%d", role, time.Now().UnixNano())
 
 	cmd := exec.Command(binaryPath, "--id", staffID, "--name", name)
@@ -253,10 +261,11 @@ func (m *Manager) HireStaff(role, name, binaryPath string) (*protocol.WorkerProf
 	}
 
 	proc := &StaffProcess{
-		Cmd:    cmd,
-		Stdin:  stdin,
-		Stdout: stdout,
-		Role:   role,
+		Cmd:           cmd,
+		Stdin:         stdin,
+		Stdout:        stdout,
+		Role:          role,
+		StaticProfile: staticProfile,
 	}
 
 	m.mu.Lock()
@@ -294,7 +303,7 @@ func (m *Manager) listenStaff(staffID string, stdout io.ReadCloser) {
 	}
 
 	m.mu.Lock()
-	if proc, ok := m.staffs[staffID]; ok {
+	if proc, ok := m.staffs[staffID]; ok && proc.Profile != nil {
 		proc.Profile.Status = protocol.StatusOffline
 	}
 	m.mu.Unlock()
@@ -316,6 +325,9 @@ func (m *Manager) handleMessage(staffID string, msg protocol.Message) {
 			m.mu.Lock()
 			if proc, ok := m.staffs[staffID]; ok {
 				proc.Profile = &profile
+
+				// 创建 Bash MCP Server（如果启用了 bash 工具）
+				m.setupBashServer(proc, staffID)
 			}
 			m.mu.Unlock()
 
@@ -424,17 +436,54 @@ func (m *Manager) handleMCPCall(staffID string, msg protocol.Message) {
 	tool, _ := msg.Payload["tool"].(string)
 	args, _ := msg.Payload["args"].(map[string]interface{})
 
-	// 调用 MCP 工具
+	// 先尝试调用外部 MCP Server
 	result, err := m.mcpManager.CallToolByName(tool, role, args)
-	if err != nil {
-		m.sendMCPError(staffID, err.Error())
+	if err == nil {
+		// 外部 Server 成功
+		m.sendMCPResult(staffID, msg.ID, result)
 		return
 	}
 
-	// 返回结果
+	// 外部 Server 失败，尝试内置 Server
+	// 解析工具名: "server:tool" 或 "tool"
+	parts := strings.SplitN(tool, ":", 2)
+	var serverName, toolName string
+	if len(parts) == 2 {
+		serverName = parts[0]
+		toolName = parts[1]
+	} else {
+		toolName = parts[0]
+		// 尝试查找内置 Server
+		internalTools := m.mcpManager.ListInternalTools()
+		for _, t := range internalTools {
+			if t.Name == tool || t.Name == toolName {
+				tParts := strings.SplitN(t.Name, ":", 2)
+				if len(tParts) == 2 {
+					serverName = tParts[0]
+					toolName = tParts[1]
+				}
+				break
+			}
+		}
+	}
+
+	if serverName != "" {
+		result, err := m.mcpManager.CallInternalTool(serverName, toolName, args)
+		if err == nil {
+			m.sendMCPResult(staffID, msg.ID, result)
+			return
+		}
+	}
+
+	// 所有尝试都失败
+	m.sendMCPError(staffID, err.Error())
+}
+
+// sendMCPResult 发送 MCP 结果
+func (m *Manager) sendMCPResult(staffID, msgID string, result *protocol.MCPCallResult) {
 	resp := protocol.Message{
 		Type: protocol.MsgMCPResult,
-		ID:   msg.ID,
+		ID:   msgID,
 		Payload: map[string]interface{}{
 			"success": result.Success,
 			"result":  result.Result,
@@ -462,6 +511,10 @@ func (m *Manager) handleMCPList(staffID string, msg protocol.Message) {
 
 	role := proc.Profile.Role
 	tools := m.mcpManager.ListTools(role)
+
+	// 添加内置工具
+	internalTools := m.mcpManager.ListInternalTools()
+	tools = append(tools, internalTools...)
 
 	// 返回工具列表
 	resp := protocol.Message{
@@ -1030,4 +1083,60 @@ func (m *Manager) SendPrivateMessage(role, from, content, history string) error 
 	}
 
 	return fmt.Errorf("no staff found for role: %s", role)
+}
+
+// setupBashServer 为 Staff 创建并注册 Bash MCP Server
+func (m *Manager) setupBashServer(proc *StaffProcess, staffID string) {
+	// 检查是否启用了 bash 工具
+	if proc.StaticProfile == nil || proc.StaticProfile.Tools.Bash == nil {
+		return
+	}
+
+	bashCfg := proc.StaticProfile.Tools.Bash
+	if !bashCfg.Enabled {
+		return
+	}
+
+	// 获取工作目录
+	workDir := m.getStaffWorkDir(staffID)
+
+	// 创建 BashTool
+	bashTool := tools.NewBashTool(workDir)
+
+	// 应用配置
+	if len(bashCfg.Allow) > 0 {
+		bashTool.SetAllowList(bashCfg.Allow)
+	}
+	if len(bashCfg.Deny) > 0 {
+		bashTool.SetDenyList(bashCfg.Deny)
+	}
+	if bashCfg.Timeout != "" {
+		if d, err := time.ParseDuration(bashCfg.Timeout); err == nil {
+			bashTool.SetTimeout(d)
+		}
+	}
+	if bashCfg.MaxOutput > 0 {
+		bashTool.SetMaxOutput(bashCfg.MaxOutput)
+	}
+
+	// 创建 Bash MCP Server
+	serverName := fmt.Sprintf("bash-%s", proc.Role)
+	bashServer := mcp.NewBashServer(serverName, bashTool)
+
+	// 注册到 MCP Manager
+	if m.mcpManager != nil {
+		m.mcpManager.RegisterInternalServer(serverName, bashServer)
+		fmt.Printf("[Boss] 已为 %s 注册 Bash MCP Server: %s\n", proc.Role, serverName)
+	}
+}
+
+// getStaffWorkDir 获取 Staff 的工作目录
+func (m *Manager) getStaffWorkDir(staffID string) string {
+	// 使用 workspaces 目录
+	workDir := filepath.Join("workspaces", staffID)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		// 如果创建失败，使用临时目录
+		workDir = os.TempDir()
+	}
+	return workDir
 }

@@ -142,6 +142,7 @@ tools:
       - tar
       - zip
       - unzip
+      - date
       
     deny:
       - sudo

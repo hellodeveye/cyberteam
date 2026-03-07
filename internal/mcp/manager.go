@@ -10,12 +10,23 @@ import (
 	"cyberteam/internal/protocol"
 )
 
+// ServerInterface 内置 Server 接口
+type ServerInterface interface {
+	Name() string
+	Start() error
+	Stop() error
+	IsReady() bool
+	Tools() []Tool
+	CallTool(name string, args map[string]interface{}) (*JSONRPCResponse, error)
+}
+
 // Manager MCP 管理器
 type Manager struct {
-	config  *Config
-	servers map[string]*ServerInstance
-	mu      sync.RWMutex
-	logger  func(string, ...interface{})
+	config          *Config
+	servers         map[string]*ServerInstance
+	internalServers map[string]ServerInterface // 内置 Server（不启动进程）
+	mu              sync.RWMutex
+	logger          func(string, ...interface{})
 }
 
 // NewManager 创建 MCP 管理器
@@ -23,9 +34,10 @@ func NewManager(configPath string) (*Manager, error) {
 	// 如果配置文件不存在，使用默认配置
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return &Manager{
-			config:  &Config{Settings: Settings{Timeout: 30}},
-			servers: make(map[string]*ServerInstance),
-			logger:  defaultLogger,
+			config:          &Config{Settings: Settings{Timeout: 30}},
+			servers:        make(map[string]*ServerInstance),
+			internalServers: make(map[string]ServerInterface),
+			logger:         defaultLogger,
 		}, nil
 	}
 
@@ -35,9 +47,10 @@ func NewManager(configPath string) (*Manager, error) {
 	}
 
 	return &Manager{
-		config:  config,
-		servers: make(map[string]*ServerInstance),
-		logger:  defaultLogger,
+		config:          config,
+		servers:        make(map[string]*ServerInstance),
+		internalServers: make(map[string]ServerInterface),
+		logger:         defaultLogger,
 	}, nil
 }
 
@@ -265,4 +278,67 @@ func (m *Manager) parseToolResult(result map[string]interface{}) string {
 // defaultLogger 默认日志函数
 func defaultLogger(format string, args ...interface{}) {
 	fmt.Fprintf(os.Stderr, format+"\n", args...)
+}
+
+// RegisterInternalServer 注册内置 Server
+func (m *Manager) RegisterInternalServer(name string, server ServerInterface) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.internalServers[name] = server
+	m.logger("[MCP] registered internal server: %s", name)
+}
+
+// GetInternalServer 获取内置 Server
+func (m *Manager) GetInternalServer(name string) (ServerInterface, bool) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	server, ok := m.internalServers[name]
+	return server, ok
+}
+
+// ListInternalTools 列出内置 Server 的工具
+func (m *Manager) ListInternalTools() []protocol.MCPToolInfo {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	var tools []protocol.MCPToolInfo
+	for serverName, server := range m.internalServers {
+		if !server.IsReady() {
+			continue
+		}
+		for _, tool := range server.Tools() {
+			tools = append(tools, protocol.MCPToolInfo{
+				Name:        fmt.Sprintf("%s:%s", serverName, tool.Name),
+				Server:      serverName,
+				Description: tool.Description,
+				InputSchema: tool.InputSchema,
+			})
+		}
+	}
+	return tools
+}
+
+// CallInternalTool 调用内置工具
+func (m *Manager) CallInternalTool(serverName, toolName string, args map[string]interface{}) (*protocol.MCPCallResult, error) {
+	m.mu.RLock()
+	server, ok := m.internalServers[serverName]
+	m.mu.RUnlock()
+
+	if !ok {
+		return nil, fmt.Errorf("internal server not found: %s", serverName)
+	}
+
+	resp, err := server.CallTool(toolName, args)
+	if err != nil {
+		return &protocol.MCPCallResult{
+			Success: false,
+			Error:   err.Error(),
+		}, nil
+	}
+
+	result := m.parseToolResult(resp.Result)
+	return &protocol.MCPCallResult{
+		Success: true,
+		Result:  result,
+	}, nil
 }

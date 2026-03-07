@@ -58,6 +58,40 @@ func NewBashTool(workDir string) *BashTool {
 	}
 }
 
+// SetAllowList 设置允许的命令列表（覆盖默认）
+func (b *BashTool) SetAllowList(cmds []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.allowedCmds = make(map[string]bool)
+	for _, cmd := range cmds {
+		b.allowedCmds[cmd] = true
+	}
+}
+
+// SetDenyList 设置禁止的命令列表（覆盖默认）
+func (b *BashTool) SetDenyList(cmds []string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.blockedCmds = make(map[string]bool)
+	for _, cmd := range cmds {
+		b.blockedCmds[cmd] = true
+	}
+}
+
+// SetTimeout 设置命令超时时间
+func (b *BashTool) SetTimeout(d time.Duration) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.timeout = d
+}
+
+// SetMaxOutput 设置最大输出字节数
+func (b *BashTool) SetMaxOutput(max int) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.maxOutput = max
+}
+
 // Execute 执行命令（安全检查）
 func (b *BashTool) Execute(command string) *Result {
 	return b.ExecuteInDir(b.workDir, command)
