@@ -35,9 +35,10 @@ type MCPListResponse struct {
 
 // MCPToolInfo 工具信息
 type MCPToolInfo struct {
-	Name        string `json:"name"`        // 完整工具名，如 "github:search_repos"
-	Server      string `json:"server"`      // 所属 Server
-	Description string `json:"description"` // 工具描述
+	Name        string                 `json:"name"`                   // 完整工具名，如 "github:search_repos"
+	Server      string                 `json:"server"`                 // 所属 Server
+	Description string                 `json:"description"`            // 工具描述
+	InputSchema map[string]interface{} `json:"input_schema,omitempty"` // 参数 Schema（JSON Schema 格式）
 }
 
 // MCPNotify MCP 状态通知
